@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="1800">
+    <title>気象神社 ⛩ {{ location }}</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;700;900&family=Shippori+Mincho:wght@400;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --red: #8B1A1A;
+            --gold: #C9A84C;
+            --gl: #E8D5A3;
+            --ink: #1a1008;
+            --paper: #F5EDD8;
+            --pd: #E8D9B8;
+            --danger: #CC2200;
+            --safe: #1a5c1a;
+            --warn: #8B6914;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--paper);
+            color: var(--ink);
+            font-family: 'Noto Serif JP', serif;
+            min-height: 100vh;
+        }
+
+        /* おみくじ */
+        .omikuji {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: linear-gradient(180deg, #1a0505, #2a0808);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity .6s, transform .6s;
+        }
+
+        .omikuji.opening {
+            opacity: 0;
+            transform: translateY(-100%);
+        }
+
+        .omikuji.gone {
+            display: none;
+        }
+
+        .omi-torii {
+            font-size: 6rem;
+            margin-bottom: .5rem;
+            animation: tg 2s ease-in-out infinite;
+        }
+
+        @keyframes tg {
+
+            0%,
+            100% {
+                text-shadow: 0 0 20px rgba(201, 168, 76, .3)
+            }
+
+            50% {
+                text-shadow: 0 0 50px rgba(201, 168, 76, .8)
+            }
+        }
+
+        .omi-title {
+            font-size: 1.8rem;
+            color: var(--gl);
+            font-family: 'Shippori Mincho', serif;
+            letter-spacing: .5em;
+            margin-bottom: 1.5rem;
+        }
+
+        .omi-cta {
+            color: var(--gl);
+            font-size: 1.3rem;
+            font-family: 'Shippori Mincho', serif;
+            letter-spacing: .3em;
+            animation: pulse 1.5s ease-in-out infinite;
+            border: 1px solid var(--gold);
+            padding: .7rem 2.5rem;
+            border-radius: 4px;
+            background: rgba(201, 168, 76, .12);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: .5;
+                transform: scale(1)
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.05)
+            }
+        }
+
+        .cloud-out {
+            position: fixed;
+            inset: 0;
+            z-index: 9998;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--paper);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .6s;
+        }
+
+        .cloud-out.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .cloud-out .spin {
+            font-size: 3rem;
+            animation: r 2s linear infinite;
+        }
+
+        @keyframes r {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        .cloud-out p {
+            margin-top: 1rem;
+            color: var(--red);
+            font-family: 'Shippori Mincho', serif;
+            letter-spacing: .2em;
+            font-size: .9rem;
+        }
+
+        .header {
+            background: linear-gradient(180deg, #4a0a0a, var(--red));
+            padding: 2rem 1rem 1.5rem;
+            text-align: center;
+            border-bottom: 3px solid var(--gold);
+        }
+
+        .torii {
+            font-size: 3rem;
+            display: block;
+            margin-bottom: .3rem;
+        }
+
+        .title {
+            font-size: 1.6rem;
+            font-weight: 900;
+            color: var(--gl);
+            letter-spacing: .3em;
+            font-family: 'Shippori Mincho', serif;
+        }
+
+        .subtitle {
+            color: rgba(232, 213, 163, .7);
+            font-size: .75rem;
+            letter-spacing: .15em;
+            margin-top: .3rem;
+        }
+
+        .updated {
+            color: rgba(232, 213, 163, .5);
+            font-size: .65rem;
+            margin-top: .3rem;
+        }
+
+        .container {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 1.5rem 1rem;
+        }
+
+        .oracle-card {
+            background: #fff;
+            border: 2px solid var(--gold);
+            border-radius: 4px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            position: relative;
+            box-shadow: 0 2px 12px rgba(139, 26, 26, .12);
+        }
+
+        .oracle-card::before {
+            content: '御神託';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--red);
+            color: var(--gl);
+            padding: 1px 14px;
+            font-size: .75rem;
+            letter-spacing: .2em;
+            font-family: 'Shippori Mincho', serif;
+        }
+
+        .verdict {
+            font-size: 4rem;
+            font-weight: 900;
+            font-family: 'Shippori Mincho', serif;
+            line-height: 1;
+        }
+
+        .verdict.kyo,
+        .verdict.daikyo {
+            color: var(--danger);
+        }
+
+        .verdict.hankichi,
+        .verdict.suekichi {
+            color: var(--warn);
+        }
+
+        .verdict.kichi,
+        .verdict.daikichi {
+            color: var(--safe);
+        }
+
+        .verdict-reading {
+            font-size: .7rem;
+            letter-spacing: .3em;
+            color: #999;
+            margin-top: .2rem;
+        }
+
+        .oracle-text {
+            margin-top: 1rem;
+            font-size: .85rem;
+            line-height: 1.9;
+            color: #444;
+            padding: 1rem;
+            background: #FBF5E6;
+            border-left: 3px solid var(--gold);
+            text-align: left;
+            word-break: break-word;
+        }
+
+        .expandable {
+            margin-top: .8rem;
+            border: 1px solid var(--pd);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .expandable summary {
+            padding: .6rem 1rem;
+            background: #f5edd8;
+            cursor: pointer;
+            font-size: .8rem;
+            font-family: 'Shippori Mincho', serif;
+            color: var(--red);
+            font-weight: 700;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+        }
+
+        .expandable summary::before {
+            content: '▸';
+            transition: transform .2s;
+        }
+
+        .expandable[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .expandable-body {
+            padding: .8rem;
+            background: #fff;
+        }
+
+        .expandable-body img {
+            width: 100%;
+            border-radius: 4px;
+            margin-bottom: .5rem;
+        }
+
+        .expandable-body a {
+            color: var(--red);
+            font-size: .75rem;
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: .9rem;
+            letter-spacing: .3em;
+            color: var(--red);
+            font-family: 'Shippori Mincho', serif;
+            font-weight: 700;
+            margin: 1.5rem 0 1rem;
+        }
+
+        .section-title::before,
+        .section-title::after {
+            content: '―';
+            color: var(--gold);
+            margin: 0 .5rem;
+        }
+
+        /* 御守り */
+        .carousel-wrap {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+
+        .carousel-vp {
+            overflow: hidden;
+        }
+
+        .carousel-track {
+            display: flex;
+            transition: transform .4s ease;
+        }
+
+        .s-card {
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #8B1A1A, #6b1212);
+            border: 1.5px solid var(--gold);
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            color: var(--gl);
+            overflow: hidden;
+        }
+
+        .s-card .o-icon {
+            font-size: 2rem;
+            margin-bottom: .3rem;
+        }
+
+        .s-card .o-name {
+            font-size: .85rem;
+            font-weight: 700;
+            font-family: 'Shippori Mincho', serif;
+            letter-spacing: .15em;
+        }
+
+        .s-card .o-advice {
+            font-size: .7rem;
+            color: rgba(232, 213, 163, .9);
+            margin-top: .4rem;
+            line-height: 1.6;
+        }
+
+        .s-card .o-detail {
+            font-size: .6rem;
+            color: rgba(232, 213, 163, .5);
+            margin-top: .3rem;
+        }
+
+        .carousel-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--red);
+            border: 1.5px solid var(--gold);
+            color: var(--gl);
+            font-size: .9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .carousel-btn.prev {
+            left: 4px;
+        }
+
+        .carousel-btn.next {
+            right: 4px;
+        }
+
+        .carousel-pips {
+            display: flex;
+            gap: 3px;
+            margin-top: .5rem;
+            justify-content: center;
+        }
+
+        .c-pip {
+            width: 16px;
+            height: 2px;
+            background: rgba(139, 26, 26, .2);
+            border-radius: 1px;
+        }
+
+        .c-pip.active {
+            background: var(--gold);
+        }
+
+        /* PC: 2枚中央グループ */
+        @media(min-width:601px) {
+            .carousel-wrap {
+                padding: 0 40px;
+            }
+
+            .carousel-vp {
+                display: flex;
+                /* justify-content: center; was causing clipping */
+            }
+
+            .s-card {
+                width: 260px;
+                margin-right: 12px;
+            }
+        }
+
+        /* スマホ: 1枚中央 */
+        @media(max-width:600px) {
+            .carousel-wrap {
+                padding: 0 36px;
+            }
+
+            .s-card {
+                margin: 0;
+            }
+        }
+
+        .prob-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            margin-bottom: 1rem;
+        }
+
+        .prob-tab {
+            padding: .6rem 1.5rem;
+            background: var(--pd);
+            border: 1.5px solid var(--gold);
+            cursor: pointer;
+            font-family: 'Shippori Mincho', serif;
+            font-size: .85rem;
+            letter-spacing: .15em;
+            transition: all .3s;
+        }
+
+        .prob-tab:first-child {
+            border-radius: 4px 0 0 4px;
+        }
+
+        .prob-tab:last-child {
+            border-radius: 0 4px 4px 0;
+        }
+
+        .prob-tab.active {
+            background: var(--red);
+            color: var(--gl);
+            border-color: var(--red);
+        }
+
+        .prob-panel {
+            display: none;
+        }
+
+        .prob-panel.active {
+            display: block;
+        }
+
+        .prob-item {
+            margin-bottom: .7rem;
+        }
+
+        .prob-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: .8rem;
+            margin-bottom: .25rem;
+        }
+
+        .prob-bar-bg {
+            height: 18px;
+            background: #e8e0cc;
+            border-radius: 9px;
+            overflow: hidden;
+        }
+
+        .prob-bar {
+            height: 100%;
+            border-radius: 9px;
+            transition: width .8s;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 6px;
+            font-size: .62rem;
+            color: #fff;
+            font-weight: 700;
+            min-width: 24px;
+        }
+
+        .prob-bar.green {
+            background: linear-gradient(90deg, #2d8a4e, #1a5c1a);
+        }
+
+        .prob-bar.yellow {
+            background: linear-gradient(90deg, #c9a84c, #8B6914);
+        }
+
+        .prob-bar.red {
+            background: linear-gradient(90deg, #cc4444, #8B1A1A);
+        }
+
+        .prob-bar.blue {
+            background: linear-gradient(90deg, #4488cc, #1a3c6e);
+        }
+
+        .prob-bar.white {
+            background: linear-gradient(90deg, #aabbcc, #667788);
+            color: #333;
+        }
+
+        .prob-bar.orange {
+            background: linear-gradient(90deg, #e8a829, #c9841c);
+        }
+
+        .prob-bar.gray {
+            background: linear-gradient(90deg, #999, #666);
+        }
+
+        .prob-divider {
+            border: 0;
+            border-top: 1px dashed var(--pd);
+            margin: .6rem 0;
+        }
+
+        .detail-panel {
+            display: none;
+        }
+
+        .detail-panel.active {
+            display: block;
+        }
+
+        .detail-card {
+            background: #fff;
+            border: 1.5px solid var(--pd);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, .07);
+        }
+
+        .detail-header {
+            padding: .6rem 1rem;
+            font-size: .85rem;
+            font-weight: 700;
+            font-family: 'Shippori Mincho', serif;
+            background: var(--red);
+            color: var(--gl);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .detail-row {
+            display: grid;
+            grid-template-columns: 50px 1fr 1fr 1fr;
+            align-items: center;
+            padding: .5rem .8rem;
+            border-bottom: 1px solid #f0e8d0;
+            font-size: .78rem;
+        }
+
+        .detail-label {
+            font-weight: 700;
+            color: var(--red);
+            font-family: 'Shippori Mincho', serif;
+        }
+
+        .detail-surface {
+            padding: .5rem .8rem;
+            font-size: .8rem;
+            display: flex;
+            gap: .5rem;
+            flex-wrap: wrap;
+        }
+
+        .detail-surface span {
+            background: var(--red);
+            color: var(--gl);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: .72rem;
+        }
+
+        .alert-block {
+            margin-bottom: 1.5rem;
+            padding: .8rem 1rem;
+            background: linear-gradient(90deg, #fff8f0, #fff2e0);
+            border-left: 4px solid var(--gold);
+            border-radius: 0 4px 4px 0;
+            font-size: .8rem;
+            color: #555;
+            font-family: 'Shippori Mincho', serif;
+            line-height: 1.7;
+        }
+
+        .alert-block::before {
+            content: '⚡ ';
+            color: var(--red);
+        }
+
+        .hourly-panel {
+            display: none;
+        }
+
+        .hourly-panel.active {
+            display: block;
+        }
+
+        .hourly-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .76rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .hourly-table th {
+            background: var(--red);
+            color: var(--gl);
+            padding: .4rem;
+            text-align: center;
+            font-weight: 400;
+        }
+
+        .hourly-table td {
+            padding: .3rem .4rem;
+            text-align: center;
+            border-bottom: 1px solid var(--pd);
+        }
+
+        .period-night_before,
+        .period-night_after {
+            background: rgba(60, 60, 100, .12) !important;
+        }
+
+        .period-morning {
+            background: rgba(255, 180, 80, .14) !important;
+        }
+
+        .period-midday {
+            background: rgba(135, 200, 235, .12) !important;
+        }
+
+        .period-afternoon {
+            background: rgba(255, 220, 100, .1) !important;
+        }
+
+        .cold {
+            color: #0044CC;
+            font-weight: 700;
+        }
+
+        .warm {
+            color: #CC4400;
+            font-weight: 700;
+        }
+
+        .heavy-rain {
+            background: #FFE0E0 !important;
+        }
+
+        .strong-wind {
+            color: #880000;
+            font-weight: 700;
+        }
+
+        .sun-info {
+            text-align: center;
+            font-size: .72rem;
+            color: #888;
+            margin-bottom: .4rem;
+            font-family: 'Shippori Mincho', serif;
+        }
+
+        .refresh-btn {
+            display: block;
+            width: 100%;
+            padding: 1rem;
+            background: var(--red);
+            color: var(--gl);
+            border: 2px solid var(--gold);
+            font-family: 'Shippori Mincho', serif;
+            font-size: 1rem;
+            letter-spacing: .3em;
+            cursor: pointer;
+            border-radius: 4px;
+            text-align: center;
+            margin-bottom: 1rem;
+            text-decoration: none;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .refresh-btn .shimmer {
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(201, 168, 76, .15), transparent);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            to {
+                left: 100%
+            }
+        }
+
+        .error-box {
+            background: #FFF0F0;
+            border: 2px solid var(--danger);
+            border-radius: 4px;
+            padding: 1rem;
+            color: var(--danger);
+            font-size: .85rem;
+            margin-bottom: 1rem;
+        }
+
+        .footer {
+            background: var(--ink);
+            color: var(--gl);
+            text-align: center;
+            padding: 1.2rem;
+            font-size: .7rem;
+            letter-spacing: .15em;
+            opacity: .8;
+        }
+
+        /* お賽銭 */
+        .saisen-fab {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--red);
+            border: 2px solid var(--gold);
+            color: var(--gl);
+            font-size: 1.5rem;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, .3);
+            animation: fabIn .5s ease;
+        }
+
+        .saisen-fab.visible {
+            display: flex;
+        }
+
+        @keyframes fabIn {
+            from {
+                transform: scale(0)
+            }
+
+            to {
+                transform: scale(1)
+            }
+        }
+
+        .saisen-panel {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            z-index: 1001;
+            width: 280px;
+            background: #fff;
+            border: 2px solid var(--gold);
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, .2);
+            display: none;
+            overflow: hidden;
+        }
+
+        .saisen-panel.open {
+            display: block;
+            animation: panelIn .3s ease;
+        }
+
+        @keyframes panelIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .saisen-header {
+            background: var(--red);
+            color: var(--gl);
+            padding: .5rem .8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: .8rem;
+            font-family: 'Shippori Mincho', serif;
+        }
+
+        .saisen-close {
+            background: none;
+            border: none;
+            color: var(--gl);
+            font-size: 1.2rem;
+            cursor: pointer;
+        }
+
+        .saisen-body {
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .saisen-msg {
+            font-size: .85rem;
+            color: #555;
+            margin-bottom: .8rem;
+            min-height: 2em;
+            font-family: 'Shippori Mincho', serif;
+            line-height: 1.6;
+        }
+
+        .saisen-throw {
+            background: var(--gold);
+            color: var(--ink);
+            border: none;
+            padding: .6rem 1.5rem;
+            border-radius: 20px;
+            font-family: 'Shippori Mincho', serif;
+            font-size: .85rem;
+            cursor: pointer;
+            letter-spacing: .15em;
+        }
+
+        .fx-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            z-index: 990;
+            overflow: hidden;
+        }
+
+        @media(max-width:600px) {
+            .container {
+                padding: 1rem .6rem;
+            }
+
+            .prob-tab {
+                padding: .5rem 1rem;
+                font-size: .75rem;
+            }
+
+            .hourly-table {
+                font-size: .66rem;
+            }
+
+            .verdict {
+                font-size: 3rem;
+            }
+
+            .detail-row {
+                grid-template-columns: 40px 1fr 1fr 1fr;
+                font-size: .72rem;
+                padding: .4rem .5rem;
+            }
+
+            .saisen-panel {
+                right: 10px;
+                left: 10px;
+                width: auto;
+            }
+
+            .saisen-fab {
+                bottom: 15px;
+                right: 15px;
+            }
+        }
+
+        /* システム概要モーダル */
+        .sys-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, .85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .3s;
+            z-index: 2000;
+        }
+
+        .sys-modal.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .sys-modal-content {
+            background: linear-gradient(135deg, #2a0b0b, #150505);
+            border: 2px solid var(--gold);
+            border-radius: 12px;
+            padding: 2rem 1.5rem;
+            width: 90%;
+            max-width: 500px;
+            position: relative;
+            transform: translateY(20px);
+            transition: transform .3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .8);
+        }
+
+        .sys-modal.active .sys-modal-content {
+            transform: translateY(0);
+        }
+
+        .sys-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            background: none;
+            border: none;
+            font-size: 2rem;
+            color: var(--gold);
+            cursor: pointer;
+            opacity: .7;
+        }
+
+        .sys-close:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="omikuji" id="omikuji">
+        <div class="omi-torii">⛩</div>
+        <div class="omi-title">気象神社</div>
+        <div class="omi-cta">タップして参拝する</div>
+    </div>
+    <div class="cloud-out" id="cloud-out">
+        <div class="spin">⛩</div>
+        <p>神殿にお伺い中…</p>
+    </div>
+    <div class="fx-layer" id="fx-layer"></div>
+    <div class="header" id="page-top">
+        <span class="torii">⛩</span>
+        <div class="title">気象神社</div>
+        <div class="subtitle">{{ location }} 専用祈願所</div>
+        {% if last_updated %}<div class="updated">最終更新: {{ last_updated }}</div>{% endif %}
+    </div>
+    <div class="container">
+        {% if error %}<div class="error-box">⚠ {{ error }}</div>{% endif %}
+        {% if oracle %}
+        <div class="oracle-card">
+            <div
+                class="verdict {% if '大凶' in oracle.verdict %}daikyo{% elif '凶' in oracle.verdict %}kyo{% elif '半吉' in oracle.verdict or '末吉' in oracle.verdict %}hankichi{% elif '大吉' in oracle.verdict %}daikichi{% else %}kichi{% endif %}">
+                {{ oracle.verdict }}</div>
+            <div class="verdict-reading">{{ oracle.verdict_reading }}</div>
+            <div class="oracle-text" id="oracle-text">{% if oracle_audio %}<button id="oracle-play-btn"
+                    onclick="playOracle()"
+                    style="font-size:.85rem;background:none;border:1px solid var(--gold);border-radius:50%;width:1.6rem;height:1.6rem;cursor:pointer;color:var(--red);float:left;margin:0 .5rem .3rem 0;opacity:.7;line-height:1;">🔊</button>{%
+                endif %}{{ oracle_text }}</div>
+            {% if meteoblue_urls %}
+            <details class="expandable">
+                <summary>📊 詳細を展開</summary>
+                <div class="expandable-body">
+                    <p style="font-size:.78rem;color:#666;margin-bottom:.6rem;line-height:1.8;">{{ detail_advice }}</p>
+                    <img src="{{ meteoblue_urls.meteogram_7d }}" alt="7d" onerror="this.style.display='none'">
+                    <img src="{{ meteoblue_urls.meteogram_14d }}" alt="14d" onerror="this.style.display='none'">
+                    <div style="text-align:center;margin-top:.4rem;"><a href="{{ meteoblue_urls.page_10day }}"
+                            target="_blank">🔗 10日間予報</a></div>
+                </div>
+            </details>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if omamori %}
+        <div class="section-title">携帯御守</div>
+        <div class="carousel-wrap">
+            <button class="carousel-btn prev" onclick="cPrev()">‹</button>
+            <button class="carousel-btn next" onclick="cNext()">›</button>
+            <div class="carousel-vp" id="c-vp">
+                <div class="carousel-track" id="c-track"></div>
+            </div>
+            <div class="carousel-pips" id="c-pips"></div>
+        </div>
+        {% endif %}
+
+        {% if probabilities %}
+        <div class="section-title">神判確率表</div>
+        <div class="prob-tabs">
+            {% for date in ski_dates %}
+            <div class="prob-tab {% if loop.first %}active{% endif %}" data-date="{{date}}"
+                onclick="switchDate('{{date}}',this)">{{ date }}</div>
+            {% endfor %}
+        </div>
+        {% for date, p in probabilities.items() %}
+        <div class="prob-panel {% if loop.first %}active{% endif %}" data-date="{{date}}" data-fx-snow="{{p.fx_snow}}"
+            data-fx-rain="{{p.fx_rain}}" data-fx-sun="{{p.fx_sun}}" data-fx-cloud="{{p.fx_cloud}}">
+            {% for label,key,color in [('❄️ 雪','fx_snow','white'),('🌧 雨','fx_rain','blue'),('☀️
+            晴れ','fx_sun','orange'),('☁️ 曇り','fx_cloud','gray')] %}
+            <div class="prob-item">
+                <div class="prob-label"><span>{{label}}</span><span>{{p[key]}}%</span></div>
+                <div class="prob-bar-bg">
+                    <div class="prob-bar {{color}}" style="width:{{[p[key],5]|max}}%">{{p[key]}}%</div>
+                </div>
+            </div>
+            {% endfor %}
+            <hr class="prob-divider">
+            {% for label,key in [('🌧 雨天リスク','rain'),('🧊 アイスバーン','ice'),('🚡 リフト運休','lift_stop'),('⛷
+            完走可能','skiable'),('✨ 快晴','clear')] %}
+            {% set v=p[key] %}
+            <div class="prob-item">
+                <div class="prob-label"><span>{{label}}</span><span>{{v}}%</span></div>
+                <div class="prob-bar-bg">
+                    <div class="prob-bar {% if key in ['skiable','clear'] %}{% if v>=60 %}green{% elif v>=30 %}yellow{% else %}red{% endif %}{% else %}{% if v<=20 %}green{% elif v<=50 %}yellow{% else %}red{% endif %}{% endif %}"
+                        style="width:{{[v,5]|max}}%">{{v}}%</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        {% if data and data.ski_detail %}
+        <div class="section-title">日別御神宣</div>
+        {% for date, det in data.ski_detail.items() %}
+        <div class="detail-panel {% if loop.first %}active{% endif %}" data-date="{{date}}">
+            <div class="detail-card">
+                <div class="detail-header"><span>{{ date }}{% if verdicts_by_date and date in verdicts_by_date %} <span
+                            style="font-size:.7rem;border:1px solid var(--gl);padding:1px 6px;border-radius:3px;margin-left:.3rem;">{{verdicts_by_date[date].verdict}}</span>{%
+                        endif %}</span><span style="font-size:.7rem;opacity:.7;">🌅{{det.sunrise}}
+                        🌇{{det.sunset}}</span></div>
+                <div class="detail-row" style="font-weight:700;color:#999;font-size:.7rem;">
+                    <div></div>
+                    <div>気温</div>
+                    <div>天候</div>
+                    <div>風</div>
+                </div>
+                {% for p in det.periods %}
+                <div class="detail-row">
+                    <div class="detail-label">{{ p.label }}</div>
+                    <div class="{% if p.temp < 0 %}cold{% elif p.temp > 3 %}warm{% endif %}">{{ p.temp|int }}℃</div>
+                    <div>{{ p.weather }}</div>
+                    <div>{{ p.wind_dir }} {{ p.wind|int }}m/s</div>
+                </div>
+                {% endfor %}
+                <div class="detail-surface">雪面: {% for s in det.surface.split('＋') %}<span>{{ s }}</span>{% endfor %}
+                </div>
+            </div>
+            <div class="alert-block">{{ det.alert }}</div>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        {% if data and data.ski_hourly %}
+        <div class="section-title">刻限天気</div>
+        {% for date in ski_dates %}
+        {% set hours = data.ski_hourly.get(date, []) %}
+        {% if hours %}
+        {% set si = data.sun_info.get(date, {}) %}
+        <div class="hourly-panel {% if loop.first %}active{% endif %}" data-date="{{date}}">
+            {% if si %}<div class="sun-info">🌅 日の出 {{si.get('sunrise_h','6')}}:{{"%02d"|format(si.get('sunrise_m',0))}}
+                ｜ 🌇 日の入り {{si.get('sunset_h','17')}}:{{"%02d"|format(si.get('sunset_m',0))}}</div>{% endif %}
+            <table class="hourly-table">
+                <thead>
+                    <tr>
+                        <th>時刻</th>
+                        <th>天気</th>
+                        <th>気温</th>
+                        <th>降水</th>
+                        <th>風速</th>
+                        <th>風向</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in hours %}
+                    <tr class="period-{{ h.period }}{% if h.precip > 5 %} heavy-rain{% endif %}">
+                        <td>{{ h.datetime }}</td>
+                        <td>{{ h.weather }}</td>
+                        <td class="{% if h.temp < 0 %}cold{% elif h.temp > 3 %}warm{% endif %}">{{ h.temp }}℃</td>
+                        <td>{{ h.precip }}mm</td>
+                        <td class="{% if h.wind > 10 %}strong-wind{% endif %}">{{ h.wind }}m/s</td>
+                        <td>{{ h.wind_dir }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+
+        <a href="#" onclick="doRefresh(event)" class="refresh-btn"><span class="shimmer"></span>🙏 再度お告げを賜る</a>
+    </div>
+    <div class="footer">気象神社 ⛩ 御神体：
+        <a href="{{ meteoblue_urls.ecmwf }}" target="_blank" rel="noopener">ECMWF</a> ·
+        <a href="{{ meteoblue_urls.gfs }}" target="_blank" rel="noopener">GFS</a> ·
+        <a href="{{ meteoblue_urls.meteoblue }}" target="_blank" rel="noopener">meteoblue</a>
+        <br><br>
+        <a href="#" onclick="document.getElementById('sys-modal').classList.add('active');return false;"
+            style="font-size:.7rem;color:var(--gold);text-decoration:none;border-bottom:1px solid var(--gold);padding-bottom:1px;">システム概要・セキュリティ開示</a>
+    </div>
+
+    <!-- システム概要モーダル -->
+    <div class="sys-modal" id="sys-modal">
+        <div class="sys-modal-content">
+            <button class="sys-close"
+                onclick="document.getElementById('sys-modal').classList.remove('active')">×</button>
+            <h3 style="color:var(--gold);margin-top:0;border-bottom:1px solid rgba(255,215,0,.3);padding-bottom:.5rem;">
+                気象神社 システム構成図</h3>
+            <div style="text-align:left;font-size:.8rem;color:#ddd;line-height:1.6;">
+                <p><strong>[ フロントエンド ]</strong><br>
+                    HTML5 / Vanilla JS / CSS3 (レスポンシブ対応)<br>
+                    ※すべてサーバーサイドレンダリング(Jinja2)で提供。</p>
+                <p><strong>[ バックエンド (Flask) ]</strong><br>
+                    ・<span style="color:var(--gold);">Meteoblue API</span>: {{ location }} のピンポイント気象履歴・予報(14日間)を取得<br>
+                    ・<span style="color:var(--gold);">Google Gemini API</span>: 気象データ・気象学に基づいた神託文書の動的生成<br>
+                    ・<span style="color:var(--gold);">gTTS</span>: 生成されたテキストをローカルで音声合成・保存(API通信なし)<br>
+                    ・<span style="color:var(--gold);">JSON永続化</span>: 生成した神託・御守りは <code>content.json</code> に記録・再利用</p>
+                <p><strong>[ ネットワーク & セキュリティ ]</strong><br>
+                    当システムは自身のPC(ローカル環境)で動作し、<span style="color:var(--red);font-weight:bold;">Cloudflare Tunnel</span>
+                    を経由して安全に外部へ公開されています。<br><br>
+                    🔒 <strong>APIキー保護機構:</strong><br>
+                    Meteoblue及びGeminiのAPIキーは <code>.env</code>
+                    ファイル(環境変数)としてサーバーPC内でのみ保持され、バックエンドプロセス(Python)からのみアクセスされます。<br>
+                    ブラウザ(フロントエンド)には一切送信されないため、<span
+                        style="color:var(--gold);">第三者がブラウザのソースコードや通信履歴からAPIキーを抜き取ることは物理的に不可能</span>な設計です。</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="saisen-fab" id="saisen-fab" onclick="toggleSaisen()">🪙</div>
+    <div class="saisen-panel" id="saisen-panel">
+        <div class="saisen-header"><span>お賽銭箱</span><button class="saisen-close" onclick="toggleSaisen()">×</button>
+        </div>
+        <div class="saisen-body">
+            <div class="saisen-msg" id="saisen-msg">神への感謝を込めて…</div>
+            <button class="saisen-throw" onclick="throwSaisen()">🪙 お賽銭を投げる</button>
+        </div>
+    </div>
+
+    <script>
+        // おみくじ
+        (function () {
+            const ov = document.getElementById('omikuji'); if (!ov) return;
+            let sx = 0;
+            ov.addEventListener('click', open);
+            ov.addEventListener('touchstart', e => { sx = e.touches[0].clientY; }, { passive: true });
+            ov.addEventListener('touchend', e => { if (sx - e.changedTouches[0].clientY > 50) open(); });
+            function open() { ov.classList.add('opening'); setTimeout(() => { ov.classList.add('gone'); window.scrollTo({ top: 0 }); }, 600); }
+        })();
+
+        // リダイレクト演出
+        function doRefresh(e) {
+            e.preventDefault();
+            document.getElementById('cloud-out').classList.add('active');
+            setTimeout(() => { window.location.href = '/otugekagain'; }, 1200);
+        }
+
+        // タブ
+        function switchDate(date, el) {
+            document.querySelectorAll('.prob-tab').forEach(t => t.classList.remove('active')); el.classList.add('active');
+            ['.prob-panel', '.detail-panel', '.hourly-panel'].forEach(s => document.querySelectorAll(s).forEach(p => p.classList.toggle('active', p.dataset.date === date)));
+            const pn = document.querySelector(`.prob-panel[data-date="${date}"]`);
+            if (pn) setFx(+pn.dataset.fxSnow || 0, +pn.dataset.fxRain || 0, +pn.dataset.fxSun || 0, +pn.dataset.fxCloud || 0);
+        }
+
+        // エフェクト（RAF個別制御、完全使い捨て）
+        const fxL = document.getElementById('fx-layer');
+        let _fxInt = null;
+        function clearFx() { fxL.innerHTML = ''; if (_fxInt) clearInterval(_fxInt); }
+        function setFx(s, r, u, c) {
+            clearFx(); const t = Math.max(s + r + u + c, 1);
+            const sR = Math.round(20 * (s + c) / t), rR = Math.round(30 * r / t), uR = Math.round(10 * u / t), total = sR + rR + uR || 5;
+            for (let i = 0; i < Math.min(total * 2, 60); i++)spR(sR, rR, uR, total);
+            _fxInt = setInterval(() => { if (fxL.children.length < 150) spR(sR, rR, uR, total); }, 200);
+        }
+        function spR(s, r, u, t) { const v = Math.random() * t; if (v < s) spS(); else if (v < s + r) spRn(); else spSn(); }
+        function spS() {
+            const chars = ['❄', '❅', '❆', '✦'], p = document.createElement('div');
+            const sz = .6 + Math.random() * 1.3, dur = 6 + Math.random() * 10, x = Math.random() * 100;
+            const mob = window.innerWidth <= 600;
+            p.textContent = chars[Math.floor(Math.random() * chars.length)];
+            p.style.cssText = `position:absolute;top:-30px;left:${x}vw;font-size:${sz}rem;color:rgba(${mob ? '180,200,255,.4' : '255,255,255,.75'});will-change:transform;pointer-events:none;`;
+            fxL.appendChild(p); const st = performance.now(), sw = Math.random() * 40 - 20;
+            (function a(now) {
+                const t = (now - st) / (dur * 1000); if (t >= 1) { p.remove(); return; }
+                p.style.transform = `translateY(${-30 + t * (window.innerHeight + 60)}px) translateX(${Math.sin(t * Math.PI * 2) * sw}px) rotate(${t * 360}deg)`;
+                p.style.opacity = Math.max(0, 1 - t * 1.2); requestAnimationFrame(a);
+            })(performance.now());
+        }
+        function spRn() {
+            const p = document.createElement('div'), h = 15 + Math.random() * 25, dur = .3 + Math.random() * .5, x = Math.random() * 100;
+            p.style.cssText = `position:absolute;top:-40px;left:${x}vw;width:2px;height:${h}px;background:linear-gradient(to bottom,transparent,rgba(80,130,255,.6));border-radius:0 0 2px 2px;will-change:transform;pointer-events:none;`;
+            fxL.appendChild(p); const st = performance.now();
+            (function a(now) {
+                const t = (now - st) / (dur * 1000); if (t >= 1) { p.remove(); return; }
+                p.style.transform = `translateY(${t * (window.innerHeight + 80)}px)`; p.style.opacity = Math.max(0, .7 - t * .7); requestAnimationFrame(a);
+            })(performance.now());
+        }
+        function spSn() {
+            const p = document.createElement('div'), s = 5 + Math.random() * 12, dur = 3 + Math.random() * 5, x = Math.random() * 100, y = Math.random() * 100;
+            p.style.cssText = `position:absolute;left:${x}vw;top:${y}vh;width:${s}px;height:${s}px;border-radius:50%;background:radial-gradient(circle,rgba(255,215,0,.7),transparent);will-change:transform;pointer-events:none;`;
+            fxL.appendChild(p); const st = performance.now();
+            (function a(now) {
+                const t = ((now - st) / (dur * 1000)); if (t >= 1) { p.remove(); return; }
+                const o = Math.sin(t * Math.PI); p.style.opacity = o * .8; p.style.transform = `scale(${.5 + o * .8}) translateY(${-o * 30}px)`; requestAnimationFrame(a);
+            })(performance.now());
+        }
+        for (let i = 0; i < 60; i++)spS();
+        _fxInt = setInterval(() => { if (fxL.children.length < 100) spS(); }, 300);
+
+        // グローバル音声管理
+        let _curAudio = null;
+        function playAudio(url, vol) {
+            if (_curAudio) { _curAudio.pause(); _curAudio = null; }
+            const a = new Audio(url); a.volume = vol || .8;
+            a.play().catch(() => { });
+            a.addEventListener('ended', () => { if (_curAudio === a) _curAudio = null; });
+            _curAudio = a;
+            return a;
+        }
+        function stopAudio() { if (_curAudio) { _curAudio.pause(); _curAudio = null; } }
+
+        // 御守りカルーセル
+        const omaData = {{ omamori| tojson | safe}};
+        const omaExpected = {{ omamori_count }};
+        let cTimer = null, cDb = null, cIdx = 0;
+        (function () {
+            if (!omaData || !omaData.length) return;
+            console.log('[御守り] server=' + omaExpected + ' client=' + omaData.length);
+            const track = document.getElementById('c-track');
+            const vp = document.getElementById('c-vp');
+            const pipsEl = document.getElementById('c-pips');
+            const n = omaData.length;
+            const mob = window.innerWidth <= 600;
+            const INT = mob ? 5000 : 3000;
+
+            function cardW() { return mob ? vp.offsetWidth : 260; }
+            function mk(om) {
+                const d = document.createElement('div'); d.className = 's-card';
+                d.style.width = cardW() + 'px';
+                if (mob) { d.style.margin = '0'; d.style.flexShrink = '0'; }
+                d.innerHTML = `<div class="o-icon">${om.icon}</div><div class="o-name">${om.name}</div><div class="o-advice">${om.advice}</div><div class="o-detail">${om.detail || ''}</div>`;
+                return d;
+            }
+            // n個をそのまま3セット(無限ループ用)
+            for (let r = 0; r < 3; r++) omaData.forEach(om => track.appendChild(mk(om)));
+            // pipsは実際の個数分だけ
+            for (let i = 0; i < n; i++) { const p = document.createElement('div'); p.className = 'c-pip'; pipsEl.appendChild(p); }
+            const pips = pipsEl.querySelectorAll('.c-pip');
+
+            function getW() { const c = track.children[0]; return c ? c.offsetWidth + (mob ? 0 : 12) : 260; }
+            cIdx = n;
+            function jumpTo(i) { track.style.transition = 'none'; track.style.transform = `translateX(-${i * getW()}px)`; track.offsetHeight; }
+            function slideTo(i) {
+                track.style.transition = 'transform .4s ease'; track.style.transform = `translateX(-${i * getW()}px)`; cIdx = i;
+                setTimeout(() => { if (cIdx >= n * 2) { cIdx = n; jumpTo(cIdx); } if (cIdx < n) { cIdx = n + (cIdx % n); jumpTo(cIdx); } }, 450);
+                pips.forEach((p, j) => p.classList.toggle('active', j === cIdx % n));
+            }
+            jumpTo(cIdx); if (pips[0]) pips[0].classList.add('active');
+
+            window.cNext = function () { slideTo(cIdx + 1); clearTimeout(cDb); clearInterval(cTimer); cDb = setTimeout(startA, 5000); };
+            window.cPrev = function () { slideTo(cIdx - 1); clearTimeout(cDb); clearInterval(cTimer); cDb = setTimeout(startA, 5000); };
+            if (mob) { let sx = 0, dx = 0; vp.addEventListener('touchstart', e => { sx = e.touches[0].clientX; dx = 0; }, { passive: true }); vp.addEventListener('touchmove', e => { dx = e.touches[0].clientX - sx; }, { passive: true }); vp.addEventListener('touchend', () => { if (Math.abs(dx) > 40) { dx < 0 ? cNext() : cPrev(); } }); }
+            function startA() { clearInterval(cTimer); cTimer = setInterval(() => slideTo(cIdx + 1), INT); }
+            startA();
+        })();
+
+        // 神託再生(トグル)
+        function playOracle() {
+            {% if oracle_audio %}
+            const btn = document.getElementById('oracle-play-btn');
+            if (_curAudio && btn && btn.dataset.playing === '1') {
+                stopAudio(); btn.dataset.playing = '0'; btn.textContent = '🔊'; return;
+            }
+            stopAudio();
+            playAudio('{{oracle_audio}}', .8);
+            if (btn) { btn.dataset.playing = '1'; btn.textContent = '⏹'; }
+            if (_curAudio) _curAudio.addEventListener('ended', () => { if (btn) { btn.dataset.playing = '0'; btn.textContent = '🔊'; } });
+            {% endif %}
+        }
+
+        // お賽銭 (連打怒り検出)
+        let saisenOpen = false, saisenTimes = [], angerMode = false;
+        function toggleSaisen() { saisenOpen = !saisenOpen; document.getElementById('saisen-panel').classList.toggle('open', saisenOpen); }
+        function throwSaisen() {
+            if (angerMode) return;
+            const msg = document.getElementById('saisen-msg');
+            const now = Date.now();
+            saisenTimes.push(now);
+            saisenTimes = saisenTimes.filter(t => now - t < 10000);
+            let rapid = 0;
+            for (let i = 1; i < saisenTimes.length; i++) { if (saisenTimes[i] - saisenTimes[i - 1] < 2000) rapid++; else rapid = 0; }
+            if (rapid >= 4 && !angerMode) {
+                angerMode = true;
+                stopAudio();
+                msg.textContent = '⚡ 神の怒り…';
+                fetch('/api/saisen_anger', { method: 'POST' }).then(r => r.json()).then(d => {
+                    msg.style.fontSize = '.72rem'; msg.style.lineHeight = '1.6';
+                    setTimeout(() => { msg.textContent = d.text; }, 500);
+                    if (d.audio) playAudio(d.audio, .9);
+                    setTimeout(() => { angerMode = false; msg.style.fontSize = ''; msg.style.lineHeight = ''; }, 8000);
+                }).catch(() => { angerMode = false; });
+                return;
+            }
+            stopAudio();
+            msg.textContent = 'チャリーン… 🪙✨';
+            fetch('/api/saisen', { method: 'POST' }).then(r => r.json()).then(d => {
+                setTimeout(() => { msg.textContent = '「' + d.text + '」'; }, 800);
+                if (d.audio) playAudio(d.audio, .7);
+            }).catch(() => { setTimeout(() => { msg.textContent = '「山に感謝せよ」'; }, 800); });
+        }
+        window.addEventListener('scroll', () => {
+            document.getElementById('saisen-fab').classList.toggle('visible',
+                window.scrollY + window.innerHeight > document.documentElement.scrollHeight - 200);
+        });
+    </script>
+</body>
+
+</html>

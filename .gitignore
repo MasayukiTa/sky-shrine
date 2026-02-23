@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+weather_cache.json
+*.log
+
+# 生成されたデータや音声は共有しない
+content.json
+static/audio/
