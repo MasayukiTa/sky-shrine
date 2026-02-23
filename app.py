@@ -83,19 +83,24 @@ def can_gen(key, window, rate, cap):
     return pool.get("gen_count",0) < rate and len(pool.get("items",[])) < cap
 
 # ===== 音声ファイル取得/生成 =====
-def ensure_audio(text, prefix):
-    h = hashlib.md5(text.encode('utf-8')).hexdigest()[:8]
-    fname = f"{prefix}_{h}.mp3"
-    fpath = os.path.join(app.config["AUDIO_DIR"], fname)
-    if not os.path.exists(fpath):
-        try:
-            tts = gTTS(text=text, lang='ja')
-            tts.save(fpath)
-            print(f"  [TTS] 生成完了: {fname}")
-        except Exception as e:
-            print(f"  [TTS] エラー: {e}")
-            return ""
-    return f"/static/audio/{fname}"
+def ensure_audio(text, subdir="oracle"):
+    """テキストのハッシュをファイル名にして保存。既存ならスキップ。"""
+    if not text: return None
+    h = hashlib.md5(text.encode()).hexdigest()[:12]
+    d = os.path.join(AUDIO_DIR, subdir)
+    os.makedirs(d, exist_ok=True)
+    fname = f"{subdir}_{h}.mp3"
+    fpath = os.path.join(d, fname)
+    if os.path.exists(fpath):
+        return f"/static/audio/{subdir}/{fname}"
+    try:
+        tts = gTTS(text=text, lang="ja", slow=False)
+        tts.save(fpath)
+        print(f"  [TTS] 生成完了: {subdir}/{fname}")
+        return f"/static/audio/{subdir}/{fname}"
+    except Exception as e:
+        print(f"  [TTS] gTTSエラー({subdir}): {e}")
+        return None
 
 # 排他制御用（同時実行を防ぐ）
 active_gens = set()
