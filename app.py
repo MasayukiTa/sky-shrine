@@ -82,25 +82,38 @@ def can_gen(key, window, rate, cap):
     pool = get_pool(key, window)
     return pool.get("gen_count",0) < rate and len(pool.get("items",[])) < cap
 
-# ===== 音声生成(gTTS) =====
-def ensure_audio(text, subdir="oracle"):
-    """テキストのハッシュをファイル名にして保存。既存ならスキップ。"""
-    h = hashlib.md5(text.encode()).hexdigest()[:12]
-    d = os.path.join(AUDIO_DIR, subdir)
-    os.makedirs(d, exist_ok=True)
-    fname = f"{subdir}_{h}.mp3"
-    fpath = os.path.join(d, fname)
-    if os.path.exists(fpath):
-        return f"/static/audio/{subdir}/{fname}"
-    try:
-        tts = gTTS(text=text, lang="ja", slow=False)
-        tts.save(fpath)
-        return f"/static/audio/{subdir}/{fname}"
-    except Exception as e:
-        print(f"  gTTSエラー({subdir}): {e}")
-        return None
+# ===== 音声ファイル取得/生成 =====
+def ensure_audio(text, prefix):
+    h = hashlib.md5(text.encode('utf-8')).hexdigest()[:8]
+    fname = f"{prefix}_{h}.mp3"
+    fpath = os.path.join(app.config["AUDIO_DIR"], fname)
+    if not os.path.exists(fpath):
+        try:
+            tts = gTTS(text=text, lang='ja')
+            tts.save(fpath)
+            print(f"  [TTS] 生成完了: {fname}")
+        except Exception as e:
+            print(f"  [TTS] エラー: {e}")
+            return ""
+    return f"/static/audio/{fname}"
 
-# ===== レートリミット =====
+# 排他制御用（同時実行を防ぐ）
+active_gens = set()
+bg_lock = threading.Lock()
+
+def safe_bg_start(func, key, *args):
+    with bg_lock:
+        if key in active_gens: return
+        active_gens.add(key)
+    def wrapper():
+        try:
+            func(*args)
+        finally:
+            with bg_lock:
+                active_gens.discard(key)
+    threading.Thread(target=wrapper, daemon=True).start()
+
+# ===== BG生成 (神託・御守り・賽銭) =====
 ip_hits = defaultdict(list)
 ip_banned = {}
 
@@ -521,9 +534,13 @@ justify-content:center;min-height:100vh;font-family:serif;text-align:center;}
     omamori_count = len(omamori)
     detail_advice = get_detail_advice(data)
 
-    # 次回分BG生成
-    threading.Thread(target=bg_gen_oracle, args=(data,v,reason), daemon=True).start()
-    threading.Thread(target=bg_gen_omamori, args=(data,), daemon=True).start()
+    # 次回分BG生成 (排他制御かつ条件クリア時のみスレッド起動)
+    if can_gen("oracles", ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP):
+        safe_bg_start(bg_gen_oracle, "oracles", data, v, reason)
+    
+    om_key = get_detail_key(data)
+    if can_gen(f"omamori_{om_key}", OMAMORI_WINDOW, OMAMORI_RATE, OMAMORI_CAP):
+        safe_bg_start(bg_gen_omamori, f"omamori_{om_key}", data)
 
     return render_template("index.html",
         location=LOCATION_NAME, data=data,
@@ -580,7 +597,9 @@ def saisen():
     last_played_saisen = text
         
     # BG追加生成
-    if data: threading.Thread(target=bg_gen_saisen_text, args=(data,), daemon=True).start()
+    if data and can_gen(f"saisen_text_{key}", SAISEN_WINDOW, SAISEN_RATE, SAISEN_CAP):
+        safe_bg_start(bg_gen_saisen_text, f"saisen_text_{key}", data)
+        
     return jsonify({"text":text,"audio":audio})
 
 @app.route("/api/saisen_anger", methods=["POST"])
