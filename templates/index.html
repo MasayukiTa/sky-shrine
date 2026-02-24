@@ -996,14 +996,15 @@
                     style="font-size:.85rem;background:none;border:1px solid var(--gold);border-radius:50%;width:1.6rem;height:1.6rem;cursor:pointer;color:var(--red);float:left;margin:0 .5rem .3rem 0;opacity:.7;line-height:1;">🔊</button>{%
                 endif %}{{ oracle_text }}</div>
             {% if meteoblue_urls %}
-            <details class="expandable">
+            <details class="expandable"
+                ontoggle="if(this.open){ Array.from(this.querySelectorAll('img[data-src]')).forEach(i=>{i.src=i.dataset.src; i.removeAttribute('data-src');}); }">
                 <summary>📊 詳細を展開</summary>
                 <div class="expandable-body">
                     <p style="font-size:.78rem;color:#666;margin-bottom:.6rem;line-height:1.8;">{{ detail_advice }}</p>
-                    <img src="{{ meteoblue_urls.meteogram_7d }}" alt="7d" onerror="this.style.display='none'">
-                    <img src="{{ meteoblue_urls.meteogram_14d }}" alt="14d" onerror="this.style.display='none'">
-                    <div style="text-align:center;margin-top:.4rem;"><a href="{{ meteoblue_urls.page_10day }}"
-                            target="_blank">🔗 10日間予報</a></div>
+                    <img data-src="/api/meteogram/7d" alt="7d" onerror="this.style.display='none'">
+                    <img data-src="/api/meteogram/14d" alt="14d" onerror="this.style.display='none'">
+                    <div style="text-align:center;margin-top:.4rem;"><a href="{{ meteoblue_urls.ecmwf }}"
+                            target="_blank">🔗 気象詳細予報 (外部サイト)</a></div>
                 </div>
             </details>
             {% endif %}

@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 > nul 2>&1
-
+cd /d "%~dp0"
 title Sky Shrine
 
 echo.
@@ -42,6 +42,21 @@ call venv\Scripts\activate.bat
 pip install -r requirements.txt -q
 
 echo [3/3] Starting...
+echo.
+
+echo ==============================================
+echo [ AIエンジンの選択 ]
+echo 1: Gemini API (制限あり・無料枠)
+echo 2: NVIDIA NIM (DeepSeek V3.2 / 無制限生成モード)
+echo ==============================================
+set /p AI_CHOICE="番号を入力してください (1 or 2): "
+if "%AI_CHOICE%"=="2" (
+    set AI_PROVIDER=nvidia
+    echo NVIDIA NIM モードで起動します...
+) else (
+    set AI_PROVIDER=gemini
+    echo Gemini モードで起動します...
+)
 echo.
 
 :: Start Cloudflare Tunnel in background

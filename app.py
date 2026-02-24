@@ -3,10 +3,10 @@
 Gemini API = 文章生成のみ。音声は全てgTTS(ローカル)。
 全生成物はcontent.jsonに永続化。
 """
-import os, json, time, random, math, hashlib, requests, threading
+import os, json, time, random, math, hashlib, requests, threading, re
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta, date as dt_date
-from flask import Flask, render_template, redirect, request, render_template_string, jsonify
+from flask import Flask, render_template, redirect, request, render_template_string, jsonify, send_file
 from dotenv import load_dotenv
 import google.generativeai as genai
 from gtts import gTTS
@@ -31,34 +31,90 @@ OMAMORI_RATE = 5;    OMAMORI_WINDOW = 43200  # 12h毎に5件
 OMAMORI_CAP = 30                              # 各天候30件上限
 SAISEN_RATE = 5;     SAISEN_WINDOW = 43200   # 12h毎に5件
 SAISEN_CAP = 30                               # 初期10件除き各天候30件上限
+ANGER_RATE = 5;      ANGER_WINDOW = 43200
+ANGER_CAP = 30
 OMAMORI_HIDE_BASE = 15
 
 genai.configure(api_key=GEMINI_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").lower()
+if AI_PROVIDER == "nvidia":
+    from openai import OpenAI
+    # ===== NVIDIA NIM Clients 分離 =====
+    
+    # 1. Oracle用 (デフォルト)
+    NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+    nvidia_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY
+    )
+    
+    # 2. Saisen (賽銭) 専用
+    NVIDIA_API_KEY_SAISEN = os.getenv("NVIDIA_API_KEY_SAISEN")
+    nvidia_client_saisen = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY_SAISEN
+    )
+    
+    # 3. Omamori (お守り) 専用
+    NVIDIA_API_KEY_OMAMORI = os.getenv("NVIDIA_API_KEY_OMAMORI")
+    nvidia_client_omamori = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY_OMAMORI
+    )
+    
+    # 4. Anger (スパム怒り) 専用
+    NVIDIA_API_KEY_ANGER = os.getenv("NVIDIA_API_KEY_ANGER")
+    nvidia_client_anger = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY_ANGER
+    )
+
+    # 5. Oracle パラレル用 (GPT-OSS-120B)
+    NVIDIA_API_KEY_ORACLE_GPTOSS = os.getenv("NVIDIA_API_KEY_ORACLE_GPTOSS")
+    nvidia_client_oracle_gptoss = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY_ORACLE_GPTOSS
+    )
+
+    # 6. Omamori パラレル用 (GPT-OSS-120B)
+    NVIDIA_API_KEY_OMAMORI_GPTOSS = os.getenv("NVIDIA_API_KEY_OMAMORI_GPTOSS")
+    nvidia_client_omamori_gptoss = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY_OMAMORI_GPTOSS
+    )
+
 BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, "data")
 AUDIO_DIR = os.path.join(BASE_DIR, "static", "audio")
+IMAGES_DIR = os.path.join(BASE_DIR, "static", "images")
 SAISEN_DIR = os.path.join(AUDIO_DIR, "saisen")
 ANGER_DIR = os.path.join(AUDIO_DIR, "anger")
-CONTENT_FILE = os.path.join(DATA_DIR, "content.json")
-for d in [DATA_DIR, AUDIO_DIR, SAISEN_DIR, ANGER_DIR]:
+
+if AI_PROVIDER == "nvidia":
+    CONTENT_FILE = os.path.join(DATA_DIR, "content_nvidia.json")
+else:
+    CONTENT_FILE = os.path.join(DATA_DIR, "content_gemini.json")
+
+for d in [DATA_DIR, AUDIO_DIR, IMAGES_DIR, SAISEN_DIR, ANGER_DIR]:
     os.makedirs(d, exist_ok=True)
 
 JST = timezone(timedelta(hours=9))
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 # ===== 永続化 =====
 def load_content():
-    try:
-        with open(CONTENT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            # 古いモノリス型神託プールを破棄 (移行処理)
-            if "oracles" in data:
-                del data["oracles"]
-                save_content(data)
-            return data
-    except: return {}
+    with _lock:
+        try:
+            with open(CONTENT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # 古いモノリス型神託プールを破棄 (移行処理)
+                if "oracles" in data:
+                    del data["oracles"]
+                    save_content(data)
+                return data
+        except: return {}
 
 def save_content(data):
     with _lock:
@@ -68,27 +124,54 @@ def save_content(data):
         except: pass
 
 def get_pool(key, window):
-    c = load_content()
-    pool = c.get(key, {"items":[],"ts":0,"gen_count":0})
-    now = time.time()
-    if now - pool.get("ts",0) > window:
-        pool = {"items":pool.get("items",[]),"ts":now,"gen_count":0}
-        c[key] = pool; save_content(c)
-    return pool
+    with _lock:
+        c = load_content()
+        pool = c.get(key, {"items":[],"ts":0,"gen_count":0})
+        now = time.time()
+        if now - pool.get("ts",0) > window:
+            pool = {"items":pool.get("items",[]),"ts":now,"gen_count":0}
+            c[key] = pool; save_content(c)
+        return pool
 
 def add_item(key, item):
-    c = load_content()
-    pool = c.get(key, {"items":[],"ts":time.time(),"gen_count":0})
-    pool["items"].append(item)
-    pool["gen_count"] = pool.get("gen_count",0) + 1
-    c[key] = pool; save_content(c)
+    with _lock:
+        c = load_content()
+        pool = c.get(key, {"items":[],"ts":time.time(),"gen_count":0})
+        pool["items"].append(item)
+        pool["gen_count"] = pool.get("gen_count",0) + 1
+        c[key] = pool; save_content(c)
 
 def can_gen(key, window, rate, cap):
     pool = get_pool(key, window)
     items = pool.get("items", [])
     if len(items) == 0:
         return True
+    if AI_PROVIDER == "nvidia":
+        # NVIDIAの場合は一切の制限・上限をかけずに無制限に生成・蓄積する
+        return True
     return pool.get("gen_count",0) < rate and len(items) < cap
+
+def generate_ai_text(prompt, client=None, model="deepseek-ai/deepseek-v3.2"):
+    if AI_PROVIDER == "nvidia":
+        try:
+            c = client if client else nvidia_client
+            res = c.chat.completions.create(
+                model=model,
+                messages=[{"role":"user","content":prompt}],
+                temperature=0.8,
+                top_p=0.95,
+                max_tokens=4000
+            )
+            raw = res.choices[0].message.content.strip()
+            # DeepSeek等の「思考トークン (<think>...</think>)」が混入した場合は除去
+            if "<think>" in raw and "</think>" in raw:
+                raw = raw.split("</think>")[-1].strip()
+            return raw
+        except Exception as e:
+            print(f"NVIDIA API Error ({model}): {e}")
+            raise e
+    else:
+        return gemini_model.generate_content(prompt).text.strip()
 
 # ===== 音声ファイル取得/生成 =====
 def ensure_audio(text, subdir="oracle"):
@@ -115,6 +198,11 @@ active_gens = set()
 bg_lock = threading.Lock()
 
 def safe_bg_start(func, key, *args):
+    if AI_PROVIDER == "nvidia":
+        # NVIDIAの場合は排他制御を無視してリクエストごとにスレッドを立ち上げる（バースト生成のため）
+        threading.Thread(target=func, args=args, daemon=True).start()
+        return
+
     with bg_lock:
         if key in active_gens: return
         active_gens.add(key)
@@ -203,20 +291,13 @@ ALERT_TEMPLATES = {
 weather_cache = {"data":None,"last_updated":None,"error":None,"last_refresh":0}
 
 def get_meteoblue_urls():
-    # 座標ベースでウェブサイトのURLを生成 (APIキー不要・安全)
-    # フォーマット: https://www.meteoblue.com/ja/weather/week/XXX_YYY
     loc = f"{LAT}N{LON}E"
     base = f"https://www.meteoblue.com/ja/weather"
-    
-    # グラフ画像用API URL (テンプレートの詳細パネルでimg srcとして使用)
-    img = f"https://my.meteoblue.com/visimage/{{t}}?apikey={METEOBLUE_KEY}&lat={LAT}&lon={LON}&asl={ALT}&temperature_unit=C&windspeed_unit=km%252Fh&lang=ja"
-    
     return {
-        "ecmwf": f"{base}/week/{loc}",       # 7日間予報 (基本ECMWFベース)
-        "gfs": f"{base}/14-days/{loc}",      # 14日間トレンド (マルチモデル/GFS含む)
-        "meteoblue": f"{base}/meteogramweb/{loc}", # 詳細メテオグラム
-        "meteogram_7d": img.format(t="meteogram_web_hd"),
-        "meteogram_14d": img.format(t="meteogram_14day_hd")
+        "ecmwf": f"{base}/week/{loc}",
+        "gfs": f"{base}/14-days/{loc}",
+        "meteoblue": f"{base}/meteogramweb/{loc}"
+        # meteogram画像はAPIキー保護のためサーバープロキシ(/api/meteogram)を経由する
     }
 
 def fetch_weather():
@@ -247,10 +328,15 @@ def parse_weather(raw):
         elif hr<a_start: period="midday"
         elif hr<ss_h: period="afternoon"
         else: period="night_after"
+        t_val = round(temps[i], 1) if i < len(temps) else 0
+        w_str = PICTO.get(p,"曇り")
+        # -4度などで「にわか雨」になるMeteoblueの仕様対策: 0度以下の「雨」は「雪」に強制的におきかえる
+        if t_val <= 0 and "雨" in w_str:
+            w_str = w_str.replace("雨", "雪")
         all_h.append({"datetime":dt.strftime("%m/%d %H:%M"),"date":dk,"hour":hr,"period":period,
             "temp":round(temps[i],1) if i<len(temps) else None,"precip":round(precip[i],1) if i<len(precip) else 0,
             "wind":round(ws[i],1) if i<len(ws) else None,"wind_dir":wind_dir_text(wd[i]) if i<len(wd) else "不明",
-            "weather":PICTO.get(p,"曇り"),"weather_cat":PICTO_CAT.get(p,"cloud")})
+            "weather":w_str,"weather_cat":PICTO_CAT.get(p,"cloud")})
     by_date={}
     for h in all_h: by_date.setdefault(h["date"],[]).append(h)
     ski_hourly={d:by_date.get(d,[]) for d in SKI_DATES}
@@ -393,22 +479,24 @@ def get_detail_key(data):
 # ===== 御守り選択 =====
 def select_omamori(data):
     key = get_detail_key(data)
-    # BASE: このkeyに対応する事前作成分
     base_key = key if key in BASE_OMAMORI else "general"
     base_items = BASE_OMAMORI.get(base_key, [])
-    # GENERATED: content.jsonからこのkeyの生成分
     pool_key = f"omamori_{key}"
     gen_pool = get_pool(pool_key, OMAMORI_WINDOW)
     gen_items = gen_pool.get("items", [])
-    # 合算 (生成分が増えるにつれてBASEを減らし、最低でもトータル15個を維持)
-    # gen_itemsが15以上の場合はBASEは0個(非表示)となり、gen_itemsのみ表示される(最大30件)
-    target_total = OMAMORI_HIDE_BASE
-    if len(gen_items) >= target_total:
-        all_items = list(gen_items)
-    else:
-        # 足りない分だけBASEから補充する
-        needed_base = target_total - len(gen_items)
-        all_items = list(base_items[:needed_base]) + list(gen_items)
+    
+    # ユーザー指定の計算ロジック:
+    # 生成件数(G)が最大30件まで。不足分を初期ベースから補って、最低15件表示を担保する。
+    # Base使用数 = min(10, max(0, 15 - G)) ※初期ベースは通常10件前後
+    
+    g_count = min(len(gen_items), 30)
+    b_count = min(len(base_items), max(0, 15 - g_count))
+    
+    used_gen = random.sample(gen_items, g_count) if len(gen_items) > g_count else list(gen_items)
+    used_base = base_items[:b_count]
+    
+    all_items = used_base + used_gen
+    
     # 重複除去
     seen = set()
     unique = []
@@ -417,7 +505,8 @@ def select_omamori(data):
         if n and n not in seen:
             seen.add(n)
             unique.append(om)
-    print(f"  [御守り] key={key} base({base_key})={len(base_items)} gen={len(gen_items)} total={len(unique)}")
+            
+    print(f"  [御守り] key={key} base({base_key})={len(used_base)} gen={len(used_gen)} total={len(unique)}")
     return unique
 
 # ===== 詳細アドバイス =====
@@ -431,64 +520,125 @@ def get_detail_advice(data):
 def bg_gen_oracle_verdict(verdict, reason):
     pool_key = f"oracle_verdict_{verdict}"
     if not can_gen(pool_key, ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP): return
-    nl = chr(10)
-    prompt = f"気象神社の神主として神託の【前半部分】を1つ生成。3〜4文の文語体。運勢の宣告と、それに基づくスキーヤーへの心構えのみ。場所:{LOCATION_NAME}(標高{ALT}m) 運勢:{verdict}({reason}){nl}テキストのみ返せ。マークダウン不要。"
-    try:
-        text = gemini_model.generate_content(prompt).text.strip()
-        speech = f"神のお告げ。{verdict}にございます。{text}"
-        audio = ensure_audio(speech, "oracle")
-        add_item(pool_key, {"text":text, "audio":audio})
-        print(f"  [BG] 神託(運勢)追加: {verdict}")
-    except Exception as e:
-        print(f"  [BG] 神託(運勢)エラー: {e}")
+    
+    def _do_gen(client, model, label):
+        try:
+            nl = chr(10)
+            personas = ["古語を操る厳格で威厳ある神", "威厳があるが少しお茶目でユーモアのある神", "現代人に寄り添う優しく親しみやすい神", "寡黙だが的確な助言をくれる職人肌の神"]
+            persona = random.choice(personas)
+            prompt = f"気象神社の神主として神託の【前半部分】を1つ生成。3〜4文の文語体。人格・口調は「{persona}」とする。運勢の宣告と、それに基づくスキーヤーへの心構えのみ。場所:{LOCATION_NAME}(標高{ALT}m) 運勢:{verdict}({reason}){nl}テキストのみ返せ。マークダウン不要。※注意：絶対に行動対象は「スキー・スノボ」とし「登山・登攀」の話題は出さないこと。"
+            text = generate_ai_text(prompt, client=client, model=model)
+            speech = f"神のお告げ。{verdict}にございます。{text}"
+            audio = ensure_audio(speech, "oracle")
+            add_item(pool_key, {"text":text, "audio":audio})
+            print(f"  [BG] 神託(運勢)追加: {verdict} ({label})")
+        except Exception as e:
+            print(f"  [BG] 神託(運勢)エラー ({label}): {e}")
+
+    if AI_PROVIDER == "nvidia":
+        threading.Thread(target=_do_gen, args=(nvidia_client, "deepseek-ai/deepseek-v3.2", "DeepSeek"), daemon=True).start()
+        threading.Thread(target=_do_gen, args=(nvidia_client_oracle_gptoss, "openai/gpt-oss-120b", "GPT-OSS"), daemon=True).start()
+    else:
+        _do_gen(None, "gemini-2.5-flash", "Gemini")
 
 def bg_gen_oracle_weather(data):
     key = get_detail_key(data)
     pool_key = f"oracle_weather_{key}"
     if not can_gen(pool_key, ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP): return
+    
     detail = data.get("ski_detail",{})
     lines = []
     for d,v in detail.items():
         parts = " / ".join(p["label"]+str(int(p["temp"]))+"℃"+p["weather"] for p in v["periods"])
         lines.append(f"{d}: {parts} 雪面:{v['surface']}")
-    nl = chr(10)
-    prompt = f"気象神社の神主として神託の【後半部分】を1つ生成。3〜5文の文語体。具体的な気象とコース状況の解説、それに応じた具体的な装備・行動アドバイスのみ。場所:{LOCATION_NAME}(標高{ALT}m) 天候キー:{key}{nl}{nl.join(lines)}{nl}テキストのみ返せ。マークダウン不要。"
-    try:
-        text = gemini_model.generate_content(prompt).text.strip()
-        audio = ensure_audio(text, "oracle")
-        add_item(pool_key, {"text":text, "audio":audio})
-        print(f"  [BG] 神託(天候)追加: {key}")
-    except Exception as e:
-        print(f"  [BG] 神託(天候)エラー: {e}")
+        
+    def _do_gen(client, model, label):
+        try:
+            nl = chr(10)
+            personas = ["古語を操る厳格で威厳ある神", "威厳があるが少しお茶目でユーモアのある神", "現代人に寄り添う優しく親しみやすい神", "寡黙だが的確な助言をくれる職人肌の神"]
+            persona = random.choice(personas)
+            prompt = f"気象神社の神主として神託の【後半部分】を1つ生成。3〜5文の文語体。人格・口調は「{persona}」とする。具体的な気象とスキー場コース状況の解説、それに応じたスキー・スノボ向けの具体的な装備・行動アドバイスのみ。場所:{LOCATION_NAME}(標高{ALT}m) 天候キー:{key}{nl}{nl.join(lines)}{nl}テキストのみ返せ。マークダウン不要。※注意：絶対に行動対象は「スキー・スノボ」とし「登山・登攀・アイゼン」の話題は出さないこと。"
+            
+            text = generate_ai_text(prompt, client=client, model=model)
+            audio = ensure_audio(text, "oracle")
+            add_item(pool_key, {"text":text, "audio":audio})
+            print(f"  [BG] 神託(天候)追加: {key} ({label})")
+        except Exception as e:
+            print(f"  [BG] 神託(天候)エラー ({label}): {e}")
+
+    if AI_PROVIDER == "nvidia":
+        threading.Thread(target=_do_gen, args=(nvidia_client, "deepseek-ai/deepseek-v3.2", "DeepSeek"), daemon=True).start()
+        threading.Thread(target=_do_gen, args=(nvidia_client_oracle_gptoss, "openai/gpt-oss-120b", "GPT-OSS"), daemon=True).start()
+    else:
+        _do_gen(None, "gemini-2.5-flash", "Gemini")
 
 def bg_gen_omamori(data):
     key = get_detail_key(data); pool_key = f"omamori_{key}"
     if not can_gen(pool_key, OMAMORI_WINDOW, OMAMORI_RATE, OMAMORI_CAP): return
+    
     detail = data.get("ski_detail",{})
     wx = []
     for d,v in detail.items():
         parts = " / ".join(p["label"]+str(int(p["temp"]))+"℃"+p["weather"] for p in v["periods"])
         wx.append(f"{d}: {parts} 雪面:{v['surface']}")
-    prompt = f"スキー場の気象神社として天候に合わせた「携帯御守り」を1つ生成。場所:{LOCATION_NAME}(標高{ALT}m) 天候:{'; '.join(wx)} 周辺:日光白根山ロープウェイ、座禅温泉(望郷の湯)、老神温泉、沼田IC50分 JSON1個:{{\"name\":\"3-5字\",\"icon\":\"絵文字\",\"advice\":\"20-40字\",\"detail\":\"15-25字\"}} テキストのみ。"
-    try:
-        text = gemini_model.generate_content(prompt).text.strip()
-        if text.startswith("```"): text=text.split("```")[1].lstrip("json\n")
-        om = json.loads(text)
-        if isinstance(om,list): om=om[0]
-        add_item(pool_key, om); print(f"  [BG] 御守り追加({key})")
-    except Exception as e:
-        print(f"  [BG] 御守りエラー: {e}")
+        
+    def _do_gen(client, model, label):
+        try:
+            prompt = f"スキー場の気象神社として日々の天候に合わせた「ゲレンデ安全祈願の携帯御守り」を1つ生成。場所:{LOCATION_NAME}(標高{ALT}m) 天候:{'; '.join(wx)} 周辺:日光白根山ロープウェイ、座禅温泉(望郷の湯)、老神温泉、沼田IC50分 JSON1個:{{\"name\":\"3-5字\",\"icon\":\"絵文字\",\"advice\":\"20-40字\",\"detail\":\"15-25字\"}} テキストのみ。※注意：絶対に行動対象は「スキー・スノボ」とし「登山」の話題は出さないこと。"
+            
+            text = generate_ai_text(prompt, client=client, model=model)
+            if text.startswith("```"): text = text.split("```")[1].lstrip("json\n")
+            
+            try:
+                om = json.loads(text)
+            except json.JSONDecodeError:
+                # 正規表現でJSON部分だけを抜き出すフォールバック
+                match = re.search(r'\{.*?\}', text, re.DOTALL)
+                if match:
+                    om = json.loads(match.group(0))
+                else:
+                    raise ValueError(f"No JSON found in text: {text}")
+
+            if isinstance(om, list): om = om[0]
+            add_item(pool_key, om)
+            print(f"  [BG] 御守り追加({key}) ({label})")
+        except Exception as e:
+            print(f"  [BG] 御守りエラー ({label}): {e}")
+
+    if AI_PROVIDER == "nvidia":
+        threading.Thread(target=_do_gen, args=(nvidia_client_omamori, "deepseek-ai/deepseek-v3.2", "DeepSeek"), daemon=True).start()
+        threading.Thread(target=_do_gen, args=(nvidia_client_omamori_gptoss, "openai/gpt-oss-120b", "GPT-OSS"), daemon=True).start()
+    else:
+        _do_gen(None, "gemini-2.5-flash", "Gemini")
 
 def bg_gen_saisen_text(data):
     key = get_detail_key(data); pool_key = f"saisen_text_{key}"
     if not can_gen(pool_key, SAISEN_WINDOW, SAISEN_RATE, SAISEN_CAP): return
     prompt = f"スキー場の賽銭箱に投げ銭した時の短いお告げを1つ生成。20文字以内。文語体で面白く。天候:{key} テキストのみ。"
+    
     try:
-        text = gemini_model.generate_content(prompt).text.strip().strip('"').strip("「」")
+        c = nvidia_client_saisen if AI_PROVIDER == "nvidia" else None
+        # 「これだけモデル変える」というご要望に応じて、必要ならモデル名を変更可能
+        text = generate_ai_text(prompt, client=c, model="nvidia/llama-3.3-nemotron-super-49b-v1.5").strip('"').strip("「」")
         audio = ensure_audio(text, "saisen_gen")
         add_item(pool_key, {"text":text, "audio":audio})
         print(f"  [BG] 賽銭文言追加({key})")
-    except: pass
+    except Exception as e:
+        print(f"  [BG] 賽銭エラー: {e}")
+
+def bg_gen_anger():
+    pool_key = "saisen_anger"
+    if not can_gen(pool_key, ANGER_WINDOW, ANGER_RATE, ANGER_CAP): return
+    prompt = f"スキー場の気象神社にて、賽銭を何度も連続で投げ込むスパム行為をする不届き者への「面白く怒る神託」を生成。文語体で50文字〜70文字程度。短すぎず長すぎず。『連打によるサーバー負荷』等のメタなシステム事情への嘆きやツッコミを神様目線の言い回し（〜じゃ、〜でおじゃる、〜であるぞ等）で入れて面白くして。テキストのみ。"
+    
+    try:
+        c = nvidia_client_anger if AI_PROVIDER == "nvidia" else None
+        text = generate_ai_text(prompt, client=c, model="openai/gpt-oss-120b").strip('"').strip("「」")
+        audio = ensure_audio(text, "anger")
+        add_item(pool_key, {"text":text, "audio":audio})
+        print(f"  [BG] 怒り文言追加")
+    except Exception as e:
+        print(f"  [BG] 怒り文言エラー: {e}")
 
 # ===== 起動時事前生成 =====
 def startup_gen_audio():
@@ -634,10 +784,51 @@ def saisen():
         
     return jsonify({"text":text,"audio":audio})
 
+@app.route("/api/meteogram/<type_id>")
+def proxy_meteogram(type_id):
+    if type_id not in ("7d", "14d"): return "Invalid Request", 400
+    fname = f"meteogram_{type_id}.png"
+    fpath = os.path.join(IMAGES_DIR, fname)
+    fetch_needed = True
+    if os.path.exists(fpath):
+        mtime = os.path.getmtime(fpath)
+        if time.time() - mtime < 21600:
+            fetch_needed = False
+    
+    if fetch_needed:
+        t_param = "meteogram_web_hd" if type_id == "7d" else "meteogram_14day_hd"
+        url = f"https://my.meteoblue.com/visimage/{t_param}?apikey={METEOBLUE_KEY}&lat={LAT}&lon={LON}&asl={ALT}&temperature_unit=C&windspeed_unit=km%252Fh&lang=ja"
+        try:
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            with open(fpath, "wb") as f:
+                f.write(r.content)
+        except Exception as e:
+            print(f"Meteogram fetch error: {e}")
+            if not os.path.exists(fpath):
+                from flask import abort
+                abort(404)
+    return send_file(fpath, mimetype="image/png")
+
 @app.route("/api/saisen_anger", methods=["POST"])
 def saisen_anger():
-    text = random.choice(ANGER_FORTUNES)
-    audio = ensure_audio(text, "anger")
+    # 生成済み怒りボイスのプール取得
+    pool_key = "saisen_anger"
+    gen_pool = get_pool(pool_key, ANGER_WINDOW)
+    gen_items = gen_pool.get("items", [])
+    
+    if gen_items and random.random() < 0.7:
+        item = random.choice(gen_items)
+        text = item["text"] if isinstance(item, dict) else item
+        audio = item.get("audio") if isinstance(item, dict) else None
+    else:
+        text = random.choice(ANGER_FORTUNES)
+        audio = ensure_audio(text, "anger")
+        
+    # BG追加生成
+    if can_gen(pool_key, ANGER_WINDOW, ANGER_RATE, ANGER_CAP):
+        safe_bg_start(bg_gen_anger, pool_key)
+        
     return jsonify({"text":text,"audio":audio})
 
 @app.route("/health")
