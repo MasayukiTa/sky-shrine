@@ -991,8 +991,8 @@
                 class="verdict {% if '大凶' in oracle.verdict %}daikyo{% elif '凶' in oracle.verdict %}kyo{% elif '半吉' in oracle.verdict or '末吉' in oracle.verdict %}hankichi{% elif '大吉' in oracle.verdict %}daikichi{% else %}kichi{% endif %}">
                 {{ oracle.verdict }}</div>
             <div class="verdict-reading">{{ oracle.verdict_reading }}</div>
-            <div class="oracle-text" id="oracle-text">{% if oracle_audio %}<button id="oracle-play-btn"
-                    onclick="playOracle()"
+            <div class="oracle-text" id="oracle-text">{% if oracle_audio_verdict and oracle_audio_weather %}<button
+                    id="oracle-play-btn" onclick="playOracle()"
                     style="font-size:.85rem;background:none;border:1px solid var(--gold);border-radius:50%;width:1.6rem;height:1.6rem;cursor:pointer;color:var(--red);float:left;margin:0 .5rem .3rem 0;opacity:.7;line-height:1;">🔊</button>{%
                 endif %}{{ oracle_text }}</div>
             {% if meteoblue_urls %}
@@ -1306,15 +1306,23 @@
 
         // 神託再生(トグル)
         function playOracle() {
-            {% if oracle_audio %}
+            {% if oracle_audio_verdict and oracle_audio_weather %}
             const btn = document.getElementById('oracle-play-btn');
             if (_curAudio && btn && btn.dataset.playing === '1') {
                 stopAudio(); btn.dataset.playing = '0'; btn.textContent = '🔊'; return;
             }
             stopAudio();
-            playAudio('{{oracle_audio}}', .8);
+            const a1 = playAudio('{{oracle_audio_verdict}}', .8);
             if (btn) { btn.dataset.playing = '1'; btn.textContent = '⏹'; }
-            if (_curAudio) _curAudio.addEventListener('ended', () => { if (btn) { btn.dataset.playing = '0'; btn.textContent = '🔊'; } });
+            if (a1) {
+                a1.addEventListener('ended', () => {
+                    if (btn && btn.dataset.playing === '0') return; // 途中で止められた場合
+                    const a2 = playAudio('{{oracle_audio_weather}}', .8);
+                    if (a2) {
+                        a2.addEventListener('ended', () => { if (btn) { btn.dataset.playing = '0'; btn.textContent = '🔊'; } });
+                    } else if (btn) { btn.dataset.playing = '0'; btn.textContent = '🔊'; }
+                });
+            }
             {% endif %}
         }
 

@@ -52,7 +52,12 @@ _lock = threading.Lock()
 def load_content():
     try:
         with open(CONTENT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            # 古いモノリス型神託プールを破棄 (移行処理)
+            if "oracles" in data:
+                del data["oracles"]
+                save_content(data)
+            return data
     except: return {}
 
 def save_content(data):
@@ -80,7 +85,10 @@ def add_item(key, item):
 
 def can_gen(key, window, rate, cap):
     pool = get_pool(key, window)
-    return pool.get("gen_count",0) < rate and len(pool.get("items",[])) < cap
+    items = pool.get("items", [])
+    if len(items) == 0:
+        return True
+    return pool.get("gen_count",0) < rate and len(items) < cap
 
 # ===== 音声ファイル取得/生成 =====
 def ensure_audio(text, subdir="oracle"):
@@ -420,24 +428,38 @@ def get_detail_advice(data):
     return "①" + items[0] + ("②" + items[1] if len(items)>1 else "") + ("③" + items[2] if len(items)>2 else "")
 
 # ===== バックグラウンド生成 =====
-def bg_gen_oracle(data, verdict, reason):
-    if not can_gen("oracles", ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP): return
+def bg_gen_oracle_verdict(verdict, reason):
+    pool_key = f"oracle_verdict_{verdict}"
+    if not can_gen(pool_key, ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP): return
+    nl = chr(10)
+    prompt = f"気象神社の神主として神託の【前半部分】を1つ生成。3〜4文の文語体。運勢の宣告と、それに基づくスキーヤーへの心構えのみ。場所:{LOCATION_NAME}(標高{ALT}m) 運勢:{verdict}({reason}){nl}テキストのみ返せ。マークダウン不要。"
+    try:
+        text = gemini_model.generate_content(prompt).text.strip()
+        speech = f"神のお告げ。{verdict}にございます。{text}"
+        audio = ensure_audio(speech, "oracle")
+        add_item(pool_key, {"text":text, "audio":audio})
+        print(f"  [BG] 神託(運勢)追加: {verdict}")
+    except Exception as e:
+        print(f"  [BG] 神託(運勢)エラー: {e}")
+
+def bg_gen_oracle_weather(data):
+    key = get_detail_key(data)
+    pool_key = f"oracle_weather_{key}"
+    if not can_gen(pool_key, ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP): return
     detail = data.get("ski_detail",{})
     lines = []
     for d,v in detail.items():
         parts = " / ".join(p["label"]+str(int(p["temp"]))+"℃"+p["weather"] for p in v["periods"])
         lines.append(f"{d}: {parts} 雪面:{v['surface']}")
     nl = chr(10)
-    prompt = f"気象神社の神主として神託を1つ生成。5〜8文の文語体で長めに。スキーへの具体的影響、気象学的解説、ユーモアを織り交ぜよ。装備・コース状況にも言及。場所:{LOCATION_NAME}(標高{ALT}m) 運勢:{verdict}({reason}){nl}{nl.join(lines)}{nl}テキストのみ返せ。マークダウン不要。"
+    prompt = f"気象神社の神主として神託の【後半部分】を1つ生成。3〜5文の文語体。具体的な気象とコース状況の解説、それに応じた具体的な装備・行動アドバイスのみ。場所:{LOCATION_NAME}(標高{ALT}m) 天候キー:{key}{nl}{nl.join(lines)}{nl}テキストのみ返せ。マークダウン不要。"
     try:
         text = gemini_model.generate_content(prompt).text.strip()
-        # 音声も即座に生成(gTTS)
-        speech = f"神のお告げ。{verdict}にございます。{text}"
-        audio = ensure_audio(speech, "oracle")
-        add_item("oracles", {"text":text, "audio":audio})
-        print(f"  [BG] 神託追加 (+音声)")
+        audio = ensure_audio(text, "oracle")
+        add_item(pool_key, {"text":text, "audio":audio})
+        print(f"  [BG] 神託(天候)追加: {key}")
     except Exception as e:
-        print(f"  [BG] 神託エラー: {e}")
+        print(f"  [BG] 神託(天候)エラー: {e}")
 
 def bg_gen_omamori(data):
     key = get_detail_key(data); pool_key = f"omamori_{key}"
@@ -521,29 +543,36 @@ justify-content:center;min-height:100vh;font-family:serif;text-align:center;}
         verdicts_by_date[d] = {"verdict":vd,"reading":rd,"reason":rsn}
 
     # 神託取得 (表示中のもの+音声)
-    oracle_pool = get_pool("oracles", ORACLE_WINDOW)
-    items = oracle_pool.get("items",[])
-    if items:
-        chosen = random.choice(items)
-        if isinstance(chosen, dict):
-            oracle_text = chosen["text"]
-            oracle_audio = chosen.get("audio")
-        else:
-            oracle_text = chosen
-            oracle_audio = None
-    else:
-        oracle_text = "天の声をお待ちください…次回アクセス時にお届けします"
-        oracle_audio = None
+    oracle_text = "天の声をお待ちください…次回アクセス時にお届けします"
+    oracle_audio_verdict = None
+    oracle_audio_weather = None
+    
+    wx_key = get_detail_key(data)
+    pool_v = get_pool(f"oracle_verdict_{v}", ORACLE_WINDOW)
+    pool_w = get_pool(f"oracle_weather_{wx_key}", ORACLE_WINDOW)
+    items_v = pool_v.get("items",[])
+    items_w = pool_w.get("items",[])
+    
+    if items_v and items_w:
+        cv = random.choice(items_v)
+        cw = random.choice(items_w)
+        tv = cv["text"] if isinstance(cv, dict) else cv
+        tw = cw["text"] if isinstance(cw, dict) else cw
+        oracle_text = f"{tv} {tw}"
+        oracle_audio_verdict = cv.get("audio") if isinstance(cv, dict) else None
+        oracle_audio_weather = cw.get("audio") if isinstance(cw, dict) else None
 
     omamori = select_omamori(data)
     omamori_count = len(omamori)
     detail_advice = get_detail_advice(data)
 
     # 次回分BG生成 (排他制御かつ条件クリア時のみスレッド起動)
-    if can_gen("oracles", ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP):
-        safe_bg_start(bg_gen_oracle, "oracles", data, v, reason)
+    if can_gen(f"oracle_verdict_{v}", ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP):
+        safe_bg_start(bg_gen_oracle_verdict, f"oracle_verdict_{v}", v, reason)
+    if can_gen(f"oracle_weather_{wx_key}", ORACLE_WINDOW, ORACLE_RATE, ORACLE_CAP):
+        safe_bg_start(bg_gen_oracle_weather, f"oracle_weather_{wx_key}", data)
     
-    om_key = get_detail_key(data)
+    om_key = wx_key
     if can_gen(f"omamori_{om_key}", OMAMORI_WINDOW, OMAMORI_RATE, OMAMORI_CAP):
         safe_bg_start(bg_gen_omamori, f"omamori_{om_key}", data)
 
@@ -551,7 +580,9 @@ justify-content:center;min-height:100vh;font-family:serif;text-align:center;}
         location=LOCATION_NAME, data=data,
         oracle={"verdict":v,"verdict_reading":r2,"reason":reason},
         verdicts_by_date=verdicts_by_date,
-        oracle_text=oracle_text, oracle_audio=oracle_audio,
+        oracle_text=oracle_text,
+        oracle_audio_verdict=oracle_audio_verdict,
+        oracle_audio_weather=oracle_audio_weather,
         detail_advice=detail_advice,
         probabilities=data.get("probabilities",{}),
         omamori=omamori, omamori_count=omamori_count,
@@ -561,10 +592,6 @@ justify-content:center;min-height:100vh;font-family:serif;text-align:center;}
 
 @app.route("/otugekagain")
 def refresh():
-    now = time.time()
-    if now - weather_cache["last_refresh"] < 120: return redirect("/")
-    weather_cache["last_refresh"] = now
-    threading.Thread(target=update_weather, daemon=True).start()
     return redirect("/")
 
 last_played_saisen = None
