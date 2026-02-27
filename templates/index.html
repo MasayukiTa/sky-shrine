@@ -35,6 +35,13 @@
             min-height: 100vh;
         }
 
+        /* iOS Safari Auto-Zoom 防御 */
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            font-size: 16px !important;
+        }
+
         /* おみくじ */
         .omikuji {
             position: fixed;
@@ -56,6 +63,40 @@
 
         .omikuji.gone {
             display: none;
+        }
+
+        /* 再構築中オーバーレイ */
+        #restarting-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            background: linear-gradient(180deg, #1a0505, #2a0808);
+            display: none;
+            /* hidden by default */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #restarting-overlay h1 {
+            color: var(--gold);
+            font-size: 2.5rem;
+            margin-bottom: 2rem;
+            letter-spacing: 0.2em;
+            text-shadow: 0 0 20px rgba(201, 168, 76, 0.4);
+            animation: pulse-op 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-op {
+
+            0%,
+            100% {
+                opacity: 0.6;
+            }
+
+            50% {
+                opacity: 1;
+            }
         }
 
         .omi-torii {
@@ -872,6 +913,128 @@
             overflow: hidden;
         }
 
+        /* チャットUI */
+        .chat-expandable {
+            border: 2px solid var(--gold);
+            margin-bottom: 1.5rem;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(139, 26, 26, .08);
+        }
+
+        .chat-inline-panel {
+            display: flex;
+            flex-direction: column;
+            background: #fffafa;
+            padding: 0;
+        }
+
+        .chat-body {
+            flex-grow: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            height: 400px;
+            /* Force to max size immediately */
+            scroll-behavior: smooth;
+        }
+
+        .chat-msg {
+            margin-bottom: 1rem;
+            padding: .6rem 1rem;
+            border-radius: 8px;
+            font-size: .85rem;
+            line-height: 1.6;
+            width: fit-content;
+            max-width: 85%;
+            word-break: break-all;
+        }
+
+        .chat-msg.user {
+            background: #e6f2ff;
+            color: #1a3c6e;
+            margin-left: auto;
+            border-bottom-right-radius: 0;
+        }
+
+        .chat-msg.god {
+            background: #fdf5e6;
+            color: var(--ink);
+            border: 1px solid var(--gold);
+            margin-right: auto;
+            border-bottom-left-radius: 0;
+        }
+
+        .chat-msg.admin {
+            background: #2a0b0b;
+            color: #ddd;
+            margin-right: auto;
+            border: 1px solid var(--gold);
+            border-radius: 4px;
+            font-family: monospace;
+            width: 100%;
+            max-width: 100%;
+        }
+
+        .chat-input-area {
+            display: flex;
+            padding: .8rem;
+            border-top: 1px solid var(--pd);
+            background: #fff;
+        }
+
+        .chat-input {
+            flex-grow: 1;
+            padding: .6rem .8rem;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            font-size: .85rem;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .chat-input:focus {
+            border-color: var(--gold);
+        }
+
+        .chat-send {
+            background: var(--red);
+            color: var(--gl);
+            border: none;
+            padding: 0 1.2rem;
+            margin-left: .5rem;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: .85rem;
+            font-weight: bold;
+            font-family: inherit;
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            display: inline-flex;
+            background: #eee;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+
+        .toggle-switch input[type="radio"] {
+            display: none;
+        }
+
+        .toggle-label {
+            padding: 4px 12px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            color: #666;
+            transition: all 0.2s;
+            font-weight: bold;
+        }
+
+        .toggle-switch input[type="radio"]:checked+.toggle-label {
+            background: var(--red);
+            color: var(--gl);
+        }
+
         @media(max-width:600px) {
             .container {
                 padding: 1rem .6rem;
@@ -1059,6 +1222,32 @@
         {% endfor %}
         {% endif %}
 
+        <div class="section-title" id="chat-section">お天気チャット</div>
+        <details class="expandable chat-expandable" id="chat-details"
+            ontoggle="document.getElementById('chat-summary-text').textContent = this.open ? '💬 チャットを閉じる' : '💬 チャットを開く'">
+            <summary style="font-size: .95rem; justify-content: center; background: #e8d5a3; color: var(--red);">
+                <span id="chat-summary-text">💬 チャットを開く</span>
+            </summary>
+            <div class="expandable-body chat-inline-panel">
+                <div class="chat-body" id="chat-body">
+                    <div class="chat-msg god">よく来たな。何か悩みか、聞きたいことはあるか？</div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" class="chat-input" placeholder="メッセージを入力..."
+                        onkeydown="if(event.key==='Enter')sendChat()">
+                    <button class="chat-send" onclick="sendChat()">送信</button>
+                </div>
+                <div style="text-align: right; padding: 5px 10px 10px; font-size: 0.75rem;">
+                    <div class="toggle-switch">
+                        <input type="radio" id="mode-fast" name="chat_mode" value="fast" checked>
+                        <label for="mode-fast" class="toggle-label">🔴 高速</label>
+                        <input type="radio" id="mode-think" name="chat_mode" value="think">
+                        <label for="mode-think" class="toggle-label">🟡 思考</label>
+                    </div>
+                </div>
+            </div>
+        </details>
+
         {% if data and data.ski_detail %}
         <div class="section-title">日別御神宣</div>
         {% for date, det in data.ski_detail.items() %}
@@ -1145,21 +1334,39 @@
             <button class="sys-close"
                 onclick="document.getElementById('sys-modal').classList.remove('active')">×</button>
             <h3 style="color:var(--gold);margin-top:0;border-bottom:1px solid rgba(255,215,0,.3);padding-bottom:.5rem;">
-                気象神社 システム構成図</h3>
+                気象神社 システム構成図 ({% if ai_provider == 'nvidia' %}NVIDIA版{% else %}Gemini版{% endif %})</h3>
             <div style="text-align:left;font-size:.8rem;color:#ddd;line-height:1.6;">
                 <p><strong>[ フロントエンド ]</strong><br>
                     HTML5 / Vanilla JS / CSS3 (レスポンシブ対応)<br>
                     ※すべてサーバーサイドレンダリング(Jinja2)で提供。</p>
+
                 <p><strong>[ バックエンド (Flask) ]</strong><br>
                     ・<span style="color:var(--gold);">Meteoblue API</span>: {{ location }} のピンポイント気象履歴・予報(14日間)を取得<br>
+
+                    {% if ai_provider == 'nvidia' %}
+                    ・<span style="color:var(--gold);">NVIDIA NIM API (Parallel)</span>: <code>deepseek-v3.2</code> と
+                    <code>gpt-oss-120b</code> を専用プロセスで完全並行稼働。制限なく神託・御守りを常時生成し続けます。<br>
+                    ・<span style="color:var(--gold);">API Key 分散</span>:
+                    レートリミット回避のため、機能ごと（お賽銭、神託、御守り、チャット）に独立したAPIキーとOpenAIクライアントを割り当てています。<br>
+                    {% else %}
                     ・<span style="color:var(--gold);">Google Gemini API</span>: 気象データ・気象学に基づいた神託文書の動的生成<br>
+                    {% endif %}
+
                     ・<span style="color:var(--gold);">gTTS</span>: 生成されたテキストをローカルで音声合成・保存(API通信なし)<br>
-                    ・<span style="color:var(--gold);">JSON永続化</span>: 生成した神託・御守りは <code>content.json</code> に記録・再利用</p>
+
+                    {% if ai_provider == 'nvidia' %}
+                    ・<span style="color:var(--gold);">JSON永続化 (RLock制御)</span>: 複数モデルが同時に
+                    <code>content_nvidia.json</code> にアクセスしても競合しないよう、スレッドロックを用いて安全に保存・再利用します。
+                    {% else %}
+                    ・<span style="color:var(--gold);">JSON永続化</span>: 生成した神託・御守りは <code>content.json</code> に記録・再利用
+                    {% endif %}
+                </p>
+
                 <p><strong>[ ネットワーク & セキュリティ ]</strong><br>
                     当システムは自身のPC(ローカル環境)で動作し、<span style="color:var(--red);font-weight:bold;">Cloudflare Tunnel</span>
                     を経由して安全に外部へ公開されています。<br><br>
                     🔒 <strong>APIキー保護機構:</strong><br>
-                    Meteoblue及びGeminiのAPIキーは <code>.env</code>
+                    すべてのAPIキーは <code>.env</code>
                     ファイル(環境変数)としてサーバーPC内でのみ保持され、バックエンドプロセス(Python)からのみアクセスされます。<br>
                     ブラウザ(フロントエンド)には一切送信されないため、<span
                         style="color:var(--gold);">第三者がブラウザのソースコードや通信履歴からAPIキーを抜き取ることは物理的に不可能</span>な設計です。</p>
@@ -1168,6 +1375,8 @@
     </div>
 
     <div class="saisen-fab" id="saisen-fab" onclick="toggleSaisen()">🪙</div>
+
+    <!-- お賽銭パネル -->
     <div class="saisen-panel" id="saisen-panel">
         <div class="saisen-header"><span>お賽銭箱</span><button class="saisen-close" onclick="toggleSaisen()">×</button>
         </div>
@@ -1274,11 +1483,11 @@
             const mob = window.innerWidth <= 600;
             const INT = mob ? 5000 : 3000;
 
-            function cardW() { return mob ? vp.offsetWidth : 260; }
+            function cardW() { return mob ? window.innerWidth : 260; }
             function mk(om) {
                 const d = document.createElement('div'); d.className = 's-card';
-                d.style.width = cardW() + 'px';
-                if (mob) { d.style.margin = '0'; d.style.flexShrink = '0'; }
+                d.style.width = mob ? '100vw' : '260px';
+                if (mob) { d.style.margin = '0'; d.style.flexShrink = '0'; d.style.boxSizing = 'border-box'; }
                 d.innerHTML = `<div class="o-icon">${om.icon}</div><div class="o-name">${om.name}</div><div class="o-advice">${om.advice}</div><div class="o-detail">${om.detail || ''}</div>`;
                 return d;
             }
@@ -1288,7 +1497,7 @@
             for (let i = 0; i < n; i++) { const p = document.createElement('div'); p.className = 'c-pip'; pipsEl.appendChild(p); }
             const pips = pipsEl.querySelectorAll('.c-pip');
 
-            function getW() { const c = track.children[0]; return c ? c.offsetWidth + (mob ? 0 : 12) : 260; }
+            function getW() { return mob ? window.innerWidth : 272; }
             cIdx = n;
             function jumpTo(i) { track.style.transition = 'none'; track.style.transform = `translateX(-${i * getW()}px)`; track.offsetHeight; }
             function slideTo(i) {
@@ -1358,9 +1567,108 @@
             }).catch(() => { setTimeout(() => { msg.textContent = '「山に感謝せよ」'; }, 800); });
         }
         window.addEventListener('scroll', () => {
-            document.getElementById('saisen-fab').classList.toggle('visible',
-                window.scrollY + window.innerHeight > document.documentElement.scrollHeight - 200);
+            const showBot = window.scrollY + window.innerHeight > document.documentElement.scrollHeight - 200;
+            document.getElementById('saisen-fab').classList.toggle('visible', showBot);
         });
+
+        // ====== チャット処理 ======
+        let chatHistory = [];
+
+        function appendChat(role, content, isHtml = false) {
+            const body = document.getElementById('chat-body');
+            const d = document.createElement('div');
+            d.className = `chat-msg ${role}`;
+            if (isHtml) d.innerHTML = content;
+            else d.textContent = content;
+            body.appendChild(d);
+            body.scrollTop = body.scrollHeight;
+        }
+
+        function sendChat() {
+            const inp = document.getElementById('chat-input');
+            const msg = inp.value.trim();
+            if (!msg) return;
+
+            appendChat('user', msg);
+            inp.value = '';
+
+            // 履歴に追加
+            chatHistory.push({ role: "user", content: msg });
+
+            // Loading
+            const loadingId = 'loading-' + Date.now();
+            appendChat('god', '...', false);
+            const body = document.getElementById('chat-body');
+            body.lastChild.id = loadingId;
+
+            let chatModeEle = document.querySelector('input[name="chat_mode"]:checked');
+            let selectedMode = chatModeEle ? chatModeEle.value : 'fast';
+
+            fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg, history: chatHistory, mode: selectedMode })
+            }).then(r => r.json()).then(data => {
+                const l = document.getElementById(loadingId);
+                if (l) l.remove();
+
+                if (data.is_admin) {
+                    appendChat('admin', data.html, true);
+                    chatHistory.pop();
+                } else if (data.text) {
+                    appendChat('god', data.text);
+                    chatHistory.push({ role: "assistant", content: data.text });
+                } else if (data.error) {
+                    appendChat('god', 'すまぬ、通信に失敗したようだ。: ' + data.error);
+                }
+            }).catch(e => {
+                const l = document.getElementById(loadingId);
+                if (l) l.remove();
+                appendChat('god', 'エラーが発生したぞ。');
+            });
+        }
+
+        function doAdmin(action, value) {
+            appendChat('admin', '処理中...');
+            fetch('/api/admin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, value: value })
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    appendChat('admin', d.msg);
+                    if (d.restarting) {
+                        appendChat('admin', '⛩ サーバー再構築を開始します...');
+                        // 1) Show the overlay
+                        const overlay = document.getElementById('restarting-overlay');
+                        if (overlay) overlay.style.display = 'flex';
+
+                        // 2) Trigger the restart script on the backend
+                        fetch('/api/trigger_restart', { method: 'POST' }).catch(() => console.log("Restart triggered"));
+
+                        // 3) Start polling the server. Cloudflare will throw 502/503 or hang if it's down.
+                        // Wait 3 seconds before starting to poll to give Flask time to actually die.
+                        setTimeout(() => {
+                            let pingTimer = setInterval(() => {
+                                fetch('/?ping=' + Date.now(), { method: 'HEAD', cache: 'no-store' })
+                                    .then(res => {
+                                        if (res.ok) {
+                                            // Server is back!
+                                            clearInterval(pingTimer);
+                                            location.reload();
+                                        }
+                                    }).catch(e => {
+                                        // Connection refused or 503 from CF, just keep polling
+                                        console.log("Waiting for god...", e);
+                                    });
+                            }, 1000); // Check every second
+                        }, 3000);
+                    }
+                } else {
+                    appendChat('admin', 'Error: ' + d.error);
+                }
+            }).catch(e => appendChat('admin', '通信エラー'));
+        }
     </script>
 </body>
 

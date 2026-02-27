@@ -12,17 +12,25 @@ import google.generativeai as genai
 from gtts import gTTS
 from prebuilt import BASE_OMAMORI, DETAIL_ADVICE, SAISEN_BY_WX, ANGER_FORTUNES
 
-load_dotenv()
+load_dotenv(override=True)
 app = Flask(__name__)
 
-METEOBLUE_KEY = os.getenv("METEOBLUE_API_KEY")
+METEOBLUE_KEY_1 = os.getenv("METEOBLUE_API_KEY_1")
+METEOBLUE_KEY_2 = os.getenv("METEOBLUE_API_KEY_2", "dummy_key_2")
+METEOBLUE_KEY_3 = os.getenv("METEOBLUE_API_KEY_3", "dummy_key_3")
+ACTIVE_METEO_INDEX = int(os.getenv("ACTIVE_METEOBLUE_INDEX", "1"))
+METEOBLUE_KEYS = {1: METEOBLUE_KEY_1, 2: METEOBLUE_KEY_2, 3: METEOBLUE_KEY_3}
+METEOBLUE_KEY = METEOBLUE_KEYS.get(ACTIVE_METEO_INDEX)
+
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 LAT = float(os.getenv("LAT", "36.85"))
 LON = float(os.getenv("LON", "139.22"))
 ALT = int(os.getenv("ALT", "2001"))
 LOCATION_NAME = os.getenv("LOCATION_NAME", "丸沼高原スキー場")
 PORT = int(os.getenv("PORT", "5000"))
-SKI_DATES = ["02/28", "03/01"]
+TARGET_DATE_1 = os.getenv("TARGET_DATE_1", "26/02/28")
+TARGET_DATE_2 = os.getenv("TARGET_DATE_2", "26/03/01")
+SKI_DATES = [TARGET_DATE_1, TARGET_DATE_2]
 
 # ===== 生成上限 =====
 ORACLE_RATE = 5;     ORACLE_WINDOW = 21600   # 6h毎に5件
@@ -38,52 +46,34 @@ OMAMORI_HIDE_BASE = 15
 genai.configure(api_key=GEMINI_KEY)
 gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
-AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").lower()
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").lower().strip()
 if AI_PROVIDER == "nvidia":
     from openai import OpenAI
-    # ===== NVIDIA NIM Clients 分離 =====
+    # ===== NVIDIA NIM Clients 分離 & 自動収集 =====
+    nv_keys = []
+    for k, v in os.environ.items():
+        if k.startswith("NVIDIA_API_KEY") and v.startswith("nvapi-"):
+            if v not in nv_keys:
+                nv_keys.append(v)
     
-    # 1. Oracle用 (デフォルト)
-    NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
-    nvidia_client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=NVIDIA_API_KEY
-    )
+    if not nv_keys:
+        nv_keys = ["dummy"]
+        
+    NVIDIA_KEYS = {i+1: key for i, key in enumerate(nv_keys)}
+    MAX_NVIDIA_KEYS = len(NVIDIA_KEYS)
     
-    # 2. Saisen (賽銭) 専用
-    NVIDIA_API_KEY_SAISEN = os.getenv("NVIDIA_API_KEY_SAISEN")
-    nvidia_client_saisen = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=NVIDIA_API_KEY_SAISEN
-    )
+    def get_nvidia_key(env_name, default_idx):
+        idx = int(os.getenv(env_name, default_idx))
+        return NVIDIA_KEYS.get(idx, NVIDIA_KEYS.get(1))
+        
+    nvidia_client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_ORACLE", 1))
+    nvidia_client_saisen = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_SAISEN", 1))
+    nvidia_client_omamori = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_OMAMORI", 1))
+    nvidia_client_anger = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_ANGER", 1))
     
-    # 3. Omamori (お守り) 専用
-    NVIDIA_API_KEY_OMAMORI = os.getenv("NVIDIA_API_KEY_OMAMORI")
-    nvidia_client_omamori = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=NVIDIA_API_KEY_OMAMORI
-    )
-    
-    # 4. Anger (スパム怒り) 専用
-    NVIDIA_API_KEY_ANGER = os.getenv("NVIDIA_API_KEY_ANGER")
-    nvidia_client_anger = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=NVIDIA_API_KEY_ANGER
-    )
-
-    # 5. Oracle パラレル用 (GPT-OSS-120B)
-    NVIDIA_API_KEY_ORACLE_GPTOSS = os.getenv("NVIDIA_API_KEY_ORACLE_GPTOSS")
-    nvidia_client_oracle_gptoss = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=NVIDIA_API_KEY_ORACLE_GPTOSS
-    )
-
-    # 6. Omamori パラレル用 (GPT-OSS-120B)
-    NVIDIA_API_KEY_OMAMORI_GPTOSS = os.getenv("NVIDIA_API_KEY_OMAMORI_GPTOSS")
-    nvidia_client_omamori_gptoss = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=NVIDIA_API_KEY_OMAMORI_GPTOSS
-    )
+    nvidia_client_oracle_gptoss = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_ORACLE_OSS", 2))
+    nvidia_client_omamori_gptoss = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_OMAMORI_OSS", 2))
+    nvidia_client_chat = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=get_nvidia_key("NVIDIA_KEY_IDX_CHAT", 3))
 
 BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -235,7 +225,13 @@ p{color:#880000;font-size:.9rem;margin:.5rem 0;}
 
 def check_rate(path):
     if path not in ("/", "/otugekagain"): return None
-    ip = request.remote_addr or "unknown"
+    # Cloudflare等のプロキシ環境下での真のIP取得
+    ip = request.headers.get("CF-Connecting-IP")
+    if not ip:
+        ip = request.headers.get("X-Forwarded-For", "").split(',')[0].strip()
+    if not ip:
+        ip = request.remote_addr or "unknown"
+        
     now = time.time()
     if ip in ip_banned:
         if now < ip_banned[ip]:
@@ -243,7 +239,7 @@ def check_rate(path):
         del ip_banned[ip]
     ip_hits[ip] = [t for t in ip_hits[ip] if now-t<60]
     ip_hits[ip].append(now)
-    if len(ip_hits[ip]) > 15:
+    if len(ip_hits[ip]) > 50:
         ip_banned[ip] = now + 600; ip_hits[ip] = []
         return render_template_string(TENBATSU_HTML, minutes=10), 429
     return None
@@ -314,12 +310,18 @@ def parse_weather(raw):
     times=d1h.get("time",[]); temps=d1h.get("temperature",[])
     precip=d1h.get("precipitation",[]); ws=d1h.get("windspeed",[])
     wd=d1h.get("winddirection",[]); pc=d1h.get("pictocode",[])
-    sun_info = {ds: calc_sun(LAT,LON,dt_date(2026,int(ds.split("/")[0]),int(ds.split("/")[1]))) for ds in SKI_DATES}
+    def parse_date_for_sun(ds):
+        parts = ds.split("/")
+        if len(parts) == 3: return dt_date(2000+int(parts[0]), int(parts[1]), int(parts[2]))
+        return dt_date(2026, int(parts[0]), int(parts[1]))
+    sun_info = {ds: calc_sun(LAT,LON,parse_date_for_sun(ds)) for ds in SKI_DATES}
     all_h = []
     for i,t in enumerate(times):
         try: dt = datetime.fromisoformat(t).replace(tzinfo=timezone.utc).astimezone(JST)
         except: continue
-        p=pc[i] if i<len(pc) else 1; hr=int(dt.strftime("%H")); dk=dt.strftime("%m/%d")
+        p=pc[i] if i<len(pc) else 1; hr=int(dt.strftime("%H"))
+        dk = dt.strftime("%y/%m/%d")
+        if dk not in SKI_DATES: dk = dt.strftime("%m/%d")
         si=sun_info.get(dk,{"sunrise_h":6,"sunset_h":17})
         sr_h=si["sunrise_h"]; ss_h=si["sunset_h"]
         day_h=ss_h-sr_h; third=day_h//3; m_end=sr_h+third; a_start=ss_h-third
@@ -407,8 +409,20 @@ def parse_weather(raw):
         "location":LOCATION_NAME}
 
 # ===== 日別判定 (API不使用) =====
+def daylight_hours_for_date(data, date):
+    hours = data.get("ski_hourly", {}).get(date, [])
+    si = data.get("sun_info", {}).get(date, {})
+    sr_h = int(si.get("sunrise_h", 6))
+    sr_m = int(si.get("sunrise_m", 0))
+    ss_h = int(si.get("sunset_h", 17))
+    start_h = sr_h + (1 if sr_m > 0 else 0)
+    end_h = ss_h
+    if end_h < start_h:
+        return []
+    return [h for h in hours if start_h <= h.get("hour", -1) <= end_h]
+
 def calc_verdict_for_date(data, date):
-    hours = [h for h in data.get("ski_hourly",{}).get(date,[]) if 7<=h["hour"]<=17]
+    hours = daylight_hours_for_date(data, date)
     all_t = [h["temp"] for h in hours if h["temp"] is not None]
     all_p = [h["precip"] for h in hours]
     all_w = [h["wind"] for h in hours if h["wind"] is not None]
@@ -434,7 +448,7 @@ def calc_verdict(data):
     """総合判定"""
     all_t,all_p,all_w=[],[],[]
     for d in SKI_DATES:
-        for h in [h for h in data.get("ski_hourly",{}).get(d,[]) if 7<=h["hour"]<=17]:
+        for h in daylight_hours_for_date(data, d):
             if h["temp"] is not None: all_t.append(h["temp"])
             all_p.append(h["precip"])
             if h["wind"] is not None: all_w.append(h["wind"])
@@ -653,17 +667,48 @@ def startup_gen_audio():
         ensure_audio(text, "anger")
     print("  怒り音声完了")
 
+WEATHER_DATA_FILE = os.path.join(DATA_DIR, "weather_data.json")
+
+def load_weather_cache():
+    with _lock:
+        try:
+            with open(WEATHER_DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                weather_cache["data"] = data.get("data")
+                weather_cache["last_updated"] = data.get("last_updated", "過去の記録")
+                weather_cache["error"] = None
+                print("  [Cache] 過去の気象データをロードしました")
+                return True
+        except:
+            return False
+
+def save_weather_cache(parsed, updated_str):
+    with _lock:
+        try:
+            with open(WEATHER_DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump({"data": parsed, "last_updated": updated_str}, f, ensure_ascii=False)
+        except:
+            pass
+
 def update_weather():
     try:
         print(f"[{datetime.now(JST).strftime('%H:%M:%S')}] 天候取得中...")
         raw = fetch_weather(); parsed = parse_weather(raw)
         weather_cache["data"] = parsed
-        weather_cache["last_updated"] = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+        updated_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
+        weather_cache["last_updated"] = updated_str
         weather_cache["error"] = None
+        save_weather_cache(parsed, updated_str)
     except Exception as e:
         weather_cache["error"] = str(e); print(f"  エラー: {e}")
+        if not weather_cache.get("data"):
+            load_weather_cache() # 取得失敗時にデータが空なら過去のキャッシュを試す
 
 def bg_updater():
+    # 初回起動時にキャッシュがあればロードしておく
+    if not weather_cache.get("data"):
+        load_weather_cache()
+
     while True:
         now=datetime.now(JST); mins=now.minute
         wait=((30-mins) if mins<30 else(60-mins))*60-now.second
@@ -738,7 +783,8 @@ justify-content:center;min-height:100vh;font-family:serif;text-align:center;}
         omamori=omamori, omamori_count=omamori_count,
         last_updated=weather_cache["last_updated"],
         error=weather_cache["error"], ski_dates=SKI_DATES,
-        meteoblue_urls=get_meteoblue_urls())
+        meteoblue_urls=get_meteoblue_urls(),
+        ai_provider=AI_PROVIDER)
 
 @app.route("/otugekagain")
 def refresh():
@@ -812,24 +858,206 @@ def proxy_meteogram(type_id):
 
 @app.route("/api/saisen_anger", methods=["POST"])
 def saisen_anger():
-    # 生成済み怒りボイスのプール取得
-    pool_key = "saisen_anger"
-    gen_pool = get_pool(pool_key, ANGER_WINDOW)
-    gen_items = gen_pool.get("items", [])
+    global last_played_saisen
+    pool = get_pool("saisen_anger", ANGER_WINDOW)
+    items = pool.get("items", [])
     
-    if gen_items and random.random() < 0.7:
-        item = random.choice(gen_items)
-        text = item["text"] if isinstance(item, dict) else item
-        audio = item.get("audio") if isinstance(item, dict) else None
+    # 候補のフィルタリング
+    valid_items = [x for x in items if (x["text"] if isinstance(x, dict) else x) != last_played_saisen] if items else []
+    if items and not valid_items: valid_items = items
+    
+    if valid_items:
+        item = random.choice(valid_items)
+        text = item["text"] if isinstance(item,dict) else item
+        audio = item.get("audio") if isinstance(item,dict) else None
     else:
         text = random.choice(ANGER_FORTUNES)
         audio = ensure_audio(text, "anger")
         
-    # BG追加生成
-    if can_gen(pool_key, ANGER_WINDOW, ANGER_RATE, ANGER_CAP):
-        safe_bg_start(bg_gen_anger, pool_key)
+    last_played_saisen = text
+    return jsonify({"text": text, "audio": audio})
+
+# ===== 神様チャット＆管理コンソール処理 =====
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    body = request.get_json() or {}
+    msg = body.get("message", "").strip()
+    history = body.get("history", []) # [{'role':'user', 'content':'...'}, {'role':'assistant', 'content':'...'}]
+    mode = body.get("mode", "fast")
+    
+    if not msg:
+        return jsonify({"error": "No message"}), 400
+
+    # 1. 管理コンソールのトリガー判定
+    if msg == "takeuchi.masayuki.xlnrc":
+        html = f'<div style="color:var(--gold);font-weight:bold;margin-bottom:10px;">🛡 ADMIN CONSOLE</div>'
+        html += f'<div style="font-size:0.75rem;margin-bottom:10px;text-align:left;">AI: {AI_PROVIDER}<br>Meteoblue枠: {ACTIVE_METEO_INDEX}</div>'
         
-    return jsonify({"text":text,"audio":audio})
+        for i in [1, 2, 3]:
+            border = 'style="border-color:#0f0;"' if i == ACTIVE_METEO_INDEX else ''
+            html += f'<button class="admin-btn" onclick="doAdmin(\'switch_meteoblue\', {i})" {border}>Meteo API {i} に切替</button>'
+            
+        html += '<hr style="border-color:#550000;margin:10px 0;">'
+        g_border = 'style="border-color:#0f0;"' if AI_PROVIDER == 'gemini' else ''
+        n_border = 'style="border-color:#0f0;"' if AI_PROVIDER == 'nvidia' else ''
+        html += f'<button class="admin-btn" onclick="doAdmin(\'switch_ai\', \'gemini\')" {g_border}>AI: Geminiに切替 (再起動)</button>'
+        html += f'<button class="admin-btn" onclick="doAdmin(\'switch_ai\', \'nvidia\')" {n_border}>AI: NVIDIAに切替 (再起動)</button>'
+        
+        html += '<hr style="border-color:#550000;margin:10px 0;">'
+        html += '<div style="font-size:0.75rem;margin-bottom:5px;">対象日設定 (YY/MM/DD)</div>'
+        html += f'<input type="text" id="t_date_1" value="{TARGET_DATE_1}" style="background:#fff;color:#000;font-weight:bold;border:1px solid #770000;width:70px;font-size:12px;padding:2px;"> '
+        html += f'<input type="text" id="t_date_2" value="{TARGET_DATE_2}" style="background:#fff;color:#000;font-weight:bold;border:1px solid #770000;width:70px;font-size:12px;padding:2px;"> '
+        html += '<button class="admin-btn" style="display:inline;width:auto;padding:2px 10px;margin-left:5px;" onclick="doAdmin(\'set_dates\', document.getElementById(\'t_date_1\').value+\',\' +document.getElementById(\'t_date_2\').value)">更新</button>'
+
+        if AI_PROVIDER == "nvidia":
+            html += '<hr style="border-color:#550000;margin:10px 0;">'
+            html += f'<div style="font-size:0.75rem;margin-bottom:5px;">NVIDIA APIキー割当 (全{MAX_NVIDIA_KEYS}枠)</div>'
+            def _key_btn(label, env_name, current_val):
+                btns = ''.join([f'<button class="admin-btn" style="display:inline;width:24px;padding:2px;margin-left:2px;{"border-color:#0f0;" if str(current_val)==str(i) else ""}" onclick="doAdmin(\'set_nvidia_key\', \'{env_name}:{i}\')">{i}</button>' for i in range(1, MAX_NVIDIA_KEYS+1)])
+                return f'<div style="margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;"><span>{label}</span><div>{btns}</div></div>'
+            html += _key_btn("Oracle", "NVIDIA_KEY_IDX_ORACLE", os.getenv("NVIDIA_KEY_IDX_ORACLE", 1))
+            html += _key_btn("Oracle(GPT)", "NVIDIA_KEY_IDX_ORACLE_OSS", os.getenv("NVIDIA_KEY_IDX_ORACLE_OSS", 2))
+            html += _key_btn("Omamori", "NVIDIA_KEY_IDX_OMAMORI", os.getenv("NVIDIA_KEY_IDX_OMAMORI", 1))
+            html += _key_btn("Oma(GPT)", "NVIDIA_KEY_IDX_OMAMORI_OSS", os.getenv("NVIDIA_KEY_IDX_OMAMORI_OSS", 2))
+            html += _key_btn("Saisen", "NVIDIA_KEY_IDX_SAISEN", os.getenv("NVIDIA_KEY_IDX_SAISEN", 1))
+            html += _key_btn("Anger", "NVIDIA_KEY_IDX_ANGER", os.getenv("NVIDIA_KEY_IDX_ANGER", 1))
+            html += _key_btn("Chat", "NVIDIA_KEY_IDX_CHAT", os.getenv("NVIDIA_KEY_IDX_CHAT", 3))
+
+        html += '<hr style="border-color:#550000;margin:10px 0;">'
+        html += '<button class="admin-btn" onclick="doAdmin(\'restart_server\', null)" style="background:#555;">システム再起動のみ</button>'
+
+        return jsonify({
+            "is_admin": True,
+            "html": html
+        })
+
+    # 2. 通常のチャット処理
+    try:
+        if AI_PROVIDER == "nvidia":
+            c = nvidia_client_chat
+            model = "openai/gpt-oss-120b" if mode == "think" else "openai/gpt-oss-20b"
+        else:
+            c = None
+            model = "gemini-2.5-flash"
+            
+        system_prompt = f"あなたは気象神社の神様です。威厳がありつつも、たまにお茶目で親しみやすい口調で話します。ユーザーからのくだらない質問や悩みにも短く（2〜3文程度）的確に、神様らしいユニークな回答を返してください。現在地の情報は丸沼高原スキー場（標高{ALT}m）です。"
+        
+        # 現在の天候情報と予報を追加
+        cached = weather_cache.get("data")
+        if cached:
+            cur = cached.get("current", {})
+            if cur:
+                wx_context = f"現在の天気: {cur.get('weather','不明')}、気温 {cur.get('temp','不明')}℃、風速 {cur.get('wind','不明')}m/sです。"
+                system_prompt += f" 【現在の天候情報】{wx_context}\n"
+            
+            ski_hourly = cached.get("ski_hourly", {})
+            if ski_hourly:
+                hourly_text = "【対象日の1時間毎予報】\n"
+                for d in SKI_DATES:
+                    hours = ski_hourly.get(d, [])
+                    if not hours: continue
+                    day_details = []
+                    for h in hours:
+                        hw = h.get('weather', '')
+                        ht = h.get('temp', 0)
+                        hwind = h.get('wind', 0)
+                        hr = h.get('hour', 0)
+                        if 6 <= hr <= 18:
+                            day_details.append(f"{hr}時:{hw}({ht}℃,{hwind}m)")
+                    hourly_text += f"{d}: " + ", ".join(day_details) + "\n"
+                system_prompt += hourly_text
+        
+        # NVIDIA API 形式の履歴構築
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in history[-5:]: # 直近5往復のみ
+            messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": msg})
+
+        if AI_PROVIDER == "nvidia":
+            res = c.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=800
+            )
+            raw = res.choices[0].message.content.strip()
+            if "<think>" in raw and "</think>" in raw:
+                raw = raw.split("</think>")[-1].strip()
+        else:
+            # Geminiの場合は単純なプロンプト連結で代用（複雑な履歴管理は今回は割愛）
+            hist_str = "\n".join([f"{h['role']}: {h['content']}" for h in history[-5:]])
+            prompt = system_prompt + f"\n\nこれまでの会話:\n{hist_str}\n\nユーザー: {msg}\n神様:"
+            raw = gemini_model.generate_content(prompt).text.strip()
+        
+        return jsonify({"text": raw})
+        
+    except Exception as e:
+        print(f"Chat API Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/admin", methods=["POST"])
+def admin_action():
+    import sys
+    body = request.get_json() or {}
+    action = body.get("action")
+    val = body.get("value")
+    
+    env_path = os.path.join(BASE_DIR, ".env")
+    
+    def update_env(key, value):
+        with open(env_path, "r", encoding="utf-8") as f: lines = f.readlines()
+        with open(env_path, "w", encoding="utf-8") as f:
+            found = False
+            for line in lines:
+                if line.startswith(f"{key}="):
+                    f.write(f"{key}={value}\n")
+                    found = True
+                else:
+                    f.write(line)
+            if not found:
+                f.write(f"\n{key}={value}\n")
+                
+    if action == "switch_meteoblue":
+        idx = str(val)
+        update_env("ACTIVE_METEOBLUE_INDEX", idx)
+        # 即時反映のため変数も更新
+        global ACTIVE_METEO_INDEX, METEOBLUE_KEY
+        ACTIVE_METEO_INDEX = int(idx)
+        METEOBLUE_KEY = METEOBLUE_KEYS.get(ACTIVE_METEO_INDEX)
+        # データ強制再取得のためにキャッシュを消す
+        weather_cache["last_updated"] = 0
+        return jsonify({"success": True, "msg": f"Meteoblue APIを枠 {idx} に切り替えました。"})
+        
+    elif action == "switch_ai":
+        update_env("AI_PROVIDER", val)
+        return jsonify({"success": True, "restarting": True, "msg": f"AIを {val} に切り替えます。再起動中..."})
+        
+    elif action == "set_dates":
+        d1, d2 = val.split(",")
+        update_env("TARGET_DATE_1", d1.strip())
+        update_env("TARGET_DATE_2", d2.strip())
+        return jsonify({"success": True, "restarting": True, "msg": "対象日を更新しました。再起動します..."})
+        
+    elif action == "set_nvidia_key":
+        k, v = val.split(":")
+        update_env(k, v)
+        return jsonify({"success": True, "restarting": True, "msg": f"{k} を枠 {v} に変更しました。再起動します..."})
+
+    elif action == "restart_server":
+        return jsonify({"success": True, "restarting": True, "msg": "設定を維持してサーバーを再起動します..."})
+
+    return jsonify({"error": "Unknown action"}), 400
+
+@app.route("/api/trigger_restart", methods=["POST"])
+def trigger_restart():
+    # admin APIから200OKを返した直後に、ブラウザ側からリスタートをキックさせるためのエンドポイント
+    import sys
+    def _restart():
+        time.sleep(1)
+        os._exit(42)
+    threading.Thread(target=_restart).start()
+    return jsonify({"success": True})
 
 @app.route("/health")
 def health():
@@ -839,7 +1067,16 @@ if __name__ == "__main__":
     print("⛩ 気象神社 起動中...")
     print(f"対象: {LOCATION_NAME} ({LAT},{LON})")
     threading.Thread(target=startup_gen_audio, daemon=True).start()
+    
+    # 起動時にまずキャッシュをロードして「準備中」を最短で抜ける
+    if load_weather_cache():
+        print("  ✓ キャッシュ読み込み成功。UIを即時解放します。")
+    else:
+        print("  × キャッシュなし。初回天候取得を待機します...")
+
+    # 初回取得 (キャッシュがあっても上書き更新する)
     update_weather()
+    
     threading.Thread(target=bg_updater, daemon=True).start()
     print(f"⛩ http://localhost:{PORT} で参拝受付中")
     app.run(host="0.0.0.0", port=PORT, debug=False)
