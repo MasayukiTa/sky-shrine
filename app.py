@@ -28,8 +28,15 @@ LON = float(os.getenv("LON", "139.22"))
 ALT = int(os.getenv("ALT", "2001"))
 LOCATION_NAME = os.getenv("LOCATION_NAME", "丸沼高原スキー場")
 PORT = int(os.getenv("PORT", "5000"))
-TARGET_DATE_1 = os.getenv("TARGET_DATE_1", "26/02/28")
-TARGET_DATE_2 = os.getenv("TARGET_DATE_2", "26/03/01")
+
+def _default_target_dates():
+    today = datetime.now(timezone(timedelta(hours=9))).date()
+    tomorrow = today + timedelta(days=1)
+    return today.strftime("%y/%m/%d"), tomorrow.strftime("%y/%m/%d")
+
+DEFAULT_TARGET_DATE_1, DEFAULT_TARGET_DATE_2 = _default_target_dates()
+TARGET_DATE_1 = os.getenv("TARGET_DATE_1", DEFAULT_TARGET_DATE_1)
+TARGET_DATE_2 = os.getenv("TARGET_DATE_2", DEFAULT_TARGET_DATE_2)
 SKI_DATES = [TARGET_DATE_1, TARGET_DATE_2]
 
 # ===== 生成上限 =====
