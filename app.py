@@ -238,6 +238,8 @@ def check_rate(path):
         ip = request.headers.get("X-Forwarded-For", "").split(',')[0].strip()
     if not ip:
         ip = request.remote_addr or "unknown"
+    if ip in ("127.0.0.1", "::1", "localhost"):
+        return None
         
     now = time.time()
     if ip in ip_banned:
@@ -392,10 +394,17 @@ def parse_weather(raw):
             "sunrise":f"{si['sunrise_h']}:{si['sunrise_m']:02d}","sunset":f"{si['sunset_h']}:{si['sunset_m']:02d}"}
     probs={}
     for d in SKI_DATES:
-        hours=ski_hourly.get(d,[]); n=len(hours)
-        if not n: continue
-        day=[h for h in hours if 7<=h["hour"]<=17]; nd=max(len(day),1)
-        cats=[h["weather_cat"] for h in hours]
+        hours=ski_hourly.get(d,[])
+        if not hours: continue
+        si = sun_info.get(d, {"sunrise_h": 6, "sunrise_m": 0, "sunset_h": 17})
+        start_h = si["sunrise_h"] + (1 if si.get("sunrise_m", 0) > 0 else 0)
+        end_h = si["sunset_h"]
+        day=[h for h in hours if start_h <= h["hour"] <= end_h]
+        if not day:
+            day = hours
+        nd=max(len(day),1)
+        cats=[h["weather_cat"] for h in day]
+        n=max(len(cats),1)
         rr=sum(1 for h in day if h["precip"]>0.5 and (h["temp"] or 0)>2)
         at2=[h["temp"] for h in hours if h["temp"] is not None]
         melt=any(t>1 for t in at2[:12]); freeze=any(t<-2 for t in at2[12:])
@@ -726,10 +735,20 @@ def before_req():
     ban = check_rate(request.path)
     if ban: return ban
 
+def ensure_weather_ready():
+    if weather_cache.get("data"):
+        return True
+    if load_weather_cache() and weather_cache.get("data"):
+        return True
+    update_weather()
+    return bool(weather_cache.get("data"))
+
 @app.route("/")
 def index():
+    ensure_weather_ready()
     data = weather_cache.get("data")
     if not data:
+        err = weather_cache.get("error") or "データ未取得"
         return render_template_string('''<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">
 <title>気象神社</title><style>body{background:#1a0505;color:#E8D5A3;display:flex;align-items:center;
@@ -1071,19 +1090,19 @@ def health():
     return {"status":"ok","last_updated":weather_cache["last_updated"]}
 
 if __name__ == "__main__":
-    print("⛩ 気象神社 起動中...")
-    print(f"対象: {LOCATION_NAME} ({LAT},{LON})")
+    print("[START] Sky Shrine booting...")
+    print(f"[TARGET] {LOCATION_NAME} ({LAT},{LON})")
     threading.Thread(target=startup_gen_audio, daemon=True).start()
     
     # 起動時にまずキャッシュをロードして「準備中」を最短で抜ける
     if load_weather_cache():
-        print("  ✓ キャッシュ読み込み成功。UIを即時解放します。")
+        print("  [OK] Cache loaded. UI can proceed immediately.")
     else:
-        print("  × キャッシュなし。初回天候取得を待機します...")
+        print("  [WARN] No cache found. Waiting for first weather fetch...")
 
     # 初回取得 (キャッシュがあっても上書き更新する)
     update_weather()
     
     threading.Thread(target=bg_updater, daemon=True).start()
-    print(f"⛩ http://localhost:{PORT} で参拝受付中")
+    print(f"[READY] http://localhost:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False)

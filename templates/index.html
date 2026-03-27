@@ -1417,8 +1417,15 @@
         let _fxInt = null;
         function clearFx() { fxL.innerHTML = ''; if (_fxInt) clearInterval(_fxInt); }
         function setFx(s, r, u, c) {
-            clearFx(); const t = Math.max(s + r + u + c, 1);
-            const sR = Math.round(20 * (s + c) / t), rR = Math.round(30 * r / t), uR = Math.round(10 * u / t), total = sR + rR + uR || 5;
+            clearFx();
+            const weatherTotal = Math.max(s + r + u + c, 1);
+            const activeTotal = s + r + u;
+            if (activeTotal <= 0) return;
+            const cloudDampen = Math.max(.15, 1 - (c / weatherTotal) * .85);
+            const total = Math.max(6, Math.round(36 * cloudDampen));
+            const sR = Math.round(total * s / activeTotal);
+            const rR = Math.round(total * r / activeTotal);
+            const uR = Math.max(0, total - sR - rR);
             for (let i = 0; i < Math.min(total * 2, 60); i++)spR(sR, rR, uR, total);
             _fxInt = setInterval(() => { if (fxL.children.length < 150) spR(sR, rR, uR, total); }, 200);
         }
@@ -1454,8 +1461,8 @@
                 const o = Math.sin(t * Math.PI); p.style.opacity = o * .8; p.style.transform = `scale(${.5 + o * .8}) translateY(${-o * 30}px)`; requestAnimationFrame(a);
             })(performance.now());
         }
-        for (let i = 0; i < 60; i++)spS();
-        _fxInt = setInterval(() => { if (fxL.children.length < 100) spS(); }, 300);
+        const initialTab = document.querySelector('.prob-tab.active');
+        if (initialTab) switchDate(initialTab.dataset.date, initialTab);
 
         // グローバル音声管理
         let _curAudio = null;
